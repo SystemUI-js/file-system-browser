@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FileSystem Demo - WebDAV-like Browser File Storage</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <h1>📁 FileSystem Demo</h1>
+        <p>WebDAV 风格的浏览器文件存储系统</p>
+      </header>
+
+      <main>
+        <section class="upload-section">
+          <h2>上传文件</h2>
+          <div class="upload-controls">
+            <input type="file" id="fileInput" multiple />
+            <button id="uploadBtn" class="btn btn-primary">上传到根目录</button>
+            <button id="createFolderBtn" class="btn btn-secondary">
+              创建文件夹
+            </button>
+            <button id="clearAllBtn" class="btn btn-danger">清空所有文件</button>
+          </div>
+        </section>
+
+        <section class="file-list-section">
+          <h2>文件列表</h2>
+          <div class="current-path">
+            <span>当前路径: </span>
+            <span id="currentPath">/</span>
+          </div>
+          <div id="fileList" class="file-list"></div>
+        </section>
+
+        <section class="clipboard-section">
+          <h2>剪贴板</h2>
+          <div id="clipboardInfo" class="clipboard-info">
+            <span>无剪贴板内容</span>
+          </div>
+          <button id="pasteBtn" class="btn btn-secondary" disabled>
+            粘贴到当前目录
+          </button>
+        </section>
+
+        <div id="modal" class="modal hidden">
+          <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3 id="modalTitle">详情</h3>
+            <div id="modalBody"></div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

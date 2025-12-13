@@ -1,0 +1,26 @@
+# Source files
+src/
+demo/
+
+# Configuration files
+tsconfig.json
+vite.config.ts
+vite.demo.config.ts
+.eslintrc.cjs
+.prettierrc
+
+# Build artifacts
+dist-demo/
+node_modules/
+
+# Version control
+.git/
+.gitignore
+.github/
+
+# Documentation and development
+README.md
+yarn.lock
+.DS_Store
+
+# Only include dist/ directory in the npm package

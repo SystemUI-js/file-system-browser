@@ -1,0 +1,58 @@
+{
+  "name": "@system-ui-js/file-system-browser",
+  "version": "0.1.0",
+  "description": "A WebDAV-like file system interface using IndexedDB for browser-based file storage",
+  "type": "module",
+  "main": "./dist/file-system.umd.js",
+  "module": "./dist/file-system.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/file-system.es.js",
+      "require": "./dist/file-system.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite --config vite.demo.config.ts --port 9973",
+    "build": "tsc && vite build",
+    "build:demo": "vite build --config vite.demo.config.ts",
+    "preview": "vite preview",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json,css,html}\""
+  },
+  "keywords": [
+    "webdav",
+    "indexeddb",
+    "file-system",
+    "browser",
+    "storage"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "@typescript-eslint/eslint-plugin": "^6.16.0",
+    "@typescript-eslint/parser": "^6.16.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.2",
+    "prettier": "^3.1.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.10",
+    "vite-plugin-dts": "^3.7.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/system-ui-js/file-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/system-ui-js/file-system/issues"
+  },
+  "homepage": "https://github.com/system-ui-js/file-system#readme",
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}
