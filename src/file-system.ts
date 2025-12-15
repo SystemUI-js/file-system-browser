@@ -3,7 +3,7 @@ import { db, FileEntry } from './db';
 export interface FileInfo {
   path: string;
   name: string;
-  type: 'file' | 'directory';
+  type: 'file' | 'directory' | 'symlink';
   size: number;
   mimeType?: string;
   createdAt: number;

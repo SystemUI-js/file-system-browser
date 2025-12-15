@@ -1,17 +1,21 @@
 export interface FileEntry {
   path: string;
   name: string;
-  type: 'file' | 'directory';
+  type: 'file' | 'directory' | 'symlink';
   size: number;
   content?: ArrayBuffer;
   mimeType?: string;
+  // symlink target (when type === 'symlink')
+  linkTarget?: string;
+  // hard link group key (all hard-linked files share the same key)
+  hardLinkKey?: string;
   createdAt: number;
   modifiedAt: number;
   parentPath: string;
 }
 
 const DB_NAME = 'FileSystemDB';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_NAME = 'files';
 
 class Database {
@@ -33,6 +37,23 @@ class Database {
           const store = db.createObjectStore(STORE_NAME, { keyPath: 'path' });
           store.createIndex('parentPath', 'parentPath', { unique: false });
           store.createIndex('type', 'type', { unique: false });
+          store.createIndex('hardLinkKey', 'hardLinkKey', { unique: false });
+        } else {
+          // upgrade indexes if needed
+          const txn = (event.target as any).transaction as IDBTransaction;
+          const store = (txn as any).objectStore
+            ? (txn as any).objectStore(STORE_NAME)
+            : (db as any).transaction(STORE_NAME, 'versionchange').objectStore(STORE_NAME);
+          const indexNames = (store.indexNames || []) as any;
+          if (!indexNames.contains || !indexNames.contains('parentPath')) {
+            try { store.createIndex('parentPath', 'parentPath', { unique: false }); } catch {}
+          }
+          if (!indexNames.contains || !indexNames.contains('type')) {
+            try { store.createIndex('type', 'type', { unique: false }); } catch {}
+          }
+          if (!indexNames.contains || !indexNames.contains('hardLinkKey')) {
+            try { store.createIndex('hardLinkKey', 'hardLinkKey', { unique: false }); } catch {}
+          }
         }
       };
     });
@@ -94,6 +115,30 @@ class Database {
       const store = transaction.objectStore(STORE_NAME);
       const request = store.getAll();
 
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+  }
+
+  async getByHardLinkKey(key: string): Promise<FileEntry[]> {
+    if (!this.db) throw new Error('Database not initialized');
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([STORE_NAME], 'readonly');
+      const store = transaction.objectStore(STORE_NAME);
+      let index: IDBIndex;
+      try {
+        index = store.index('hardLinkKey');
+      } catch (e) {
+        // index might not exist if DB not upgraded properly; fallback to scan all
+        const reqAll = store.getAll();
+        reqAll.onerror = () => reject(reqAll.error);
+        reqAll.onsuccess = () => {
+          const all = reqAll.result as FileEntry[];
+          resolve(all.filter((e) => (e as any).hardLinkKey === key));
+        };
+        return;
+      }
+      const request = index.getAll(key);
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
     });

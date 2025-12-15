@@ -1,6 +1,14 @@
-import { FileSystem, FileInfo } from '@system-ui-js/file-system-browser';
+import fs, { sorter } from '@system-ui-js/file-system-browser';
 
-const fs = new FileSystem();
+type UIItem = {
+  path: string;
+  name: string;
+  type: 'file' | 'directory' | 'symlink';
+  size: number;
+  modifiedAt: number;
+  linkTarget?: string;
+  nlink?: number;
+};
 let currentPath = '/';
 let clipboard: { type: 'copy' | 'cut'; path: string } | null = null;
 
@@ -11,6 +19,8 @@ const createFolderBtn = document.getElementById(
   'createFolderBtn'
 ) as HTMLButtonElement;
 const clearAllBtn = document.getElementById('clearAllBtn') as HTMLButtonElement;
+const createSymlinkBtn = document.getElementById('createSymlinkBtn') as HTMLButtonElement;
+const createHardlinkBtn = document.getElementById('createHardlinkBtn') as HTMLButtonElement;
 const fileList = document.getElementById('fileList') as HTMLDivElement;
 const currentPathSpan = document.getElementById(
   'currentPath'
@@ -23,13 +33,32 @@ const modal = document.getElementById('modal') as HTMLDivElement;
 const modalTitle = document.getElementById('modalTitle') as HTMLHeadingElement;
 const modalBody = document.getElementById('modalBody') as HTMLDivElement;
 const closeModal = document.querySelector('.close') as HTMLSpanElement;
+// storage info elements
+const persistStatusEl = document.getElementById('persistStatus') as HTMLSpanElement | null;
+const usedSpaceEl = document.getElementById('usedSpace') as HTMLSpanElement | null;
+const totalSpaceEl = document.getElementById('totalSpace') as HTMLSpanElement | null;
+const requestPersistBtn = document.getElementById('requestPersistBtn') as HTMLButtonElement | null;
+// search elements
+const searchInput = document.getElementById('searchInput') as HTMLInputElement | null;
+const searchBtn = document.getElementById('searchBtn') as HTMLButtonElement | null;
+const clearSearchBtn = document.getElementById('clearSearchBtn') as HTMLButtonElement | null;
+const searchFromRoot = document.getElementById('searchFromRoot') as HTMLInputElement | null;
+const searchStatus = document.getElementById('searchStatus') as HTMLSpanElement | null;
+// sort controls
+const sortModeSel = document.getElementById('sortMode') as HTMLSelectElement | null;
+const sortOrderSel = document.getElementById('sortOrder') as HTMLSelectElement | null;
 
-// Initialize
+let searchSeq = 0; // 防止竞态：仅展示最后一次搜索结果
+let lastRenderedFiles: UIItem[] = [];
+let currentSortMode: 'name' | 'createdAt' | 'modifiedAt' | 'size' | 'manual' = 'name';
+let currentSortOrder: 'asc' | 'desc' = 'asc';
+
+// Initialize (fs 会在首次调用时自动初始化)
 async function init() {
   try {
-    await fs.init();
-    console.log('FileSystem initialized');
     await refreshFileList();
+    // 初次加载刷新存储信息
+    await refreshStorageInfo();
   } catch (error) {
     console.error('Failed to initialize:', error);
     alert('初始化文件系统失败');
@@ -45,13 +74,56 @@ uploadBtn.addEventListener('click', async () => {
   }
 
   try {
-    for (const file of Array.from(files)) {
-      const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
-      await fs.put(path, file);
+    // 确认持久化（仅第一次尝试时弹窗）
+    await ensurePersistenceBeforeUpload();
+
+    // 获取当前目录已存在的名称集合，用于同名校验
+    const existedNames = new Set<string>();
+    try {
+      const dirents = await fs.promises.readdir(currentPath, { withFileTypes: true } as any);
+      for (const d of dirents as any[]) {
+        existedNames.add((d as any).name || '');
+      }
+    } catch {
+      // ignore, 若读取失败，按无文件处理
     }
+
+    let successCount = 0;
+    let skipDuplicates: string[] = [];
+    let failed: { name: string; reason: string }[] = [];
+
+    for (const file of Array.from(files)) {
+      // 同名禁止上传
+      if (existedNames.has(file.name)) {
+        skipDuplicates.push(file.name);
+        continue;
+      }
+      try {
+        const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
+        const buf = new Uint8Array(await file.arrayBuffer());
+        await fs.promises.writeFile(path, buf);
+        successCount++;
+        // 上传成功后将其加入集合，避免同一批次多个文件重名（极少见）
+        existedNames.add(file.name);
+      } catch (e) {
+        failed.push({ name: file.name, reason: (e as Error).message });
+      }
+    }
+
     fileInput.value = '';
     await refreshFileList();
-    alert(`成功上传 ${files.length} 个文件`);
+    await refreshStorageInfo();
+
+    // 组合提示信息
+    const parts: string[] = [];
+    if (successCount > 0) parts.push(`成功上传 ${successCount} 个文件`);
+    if (skipDuplicates.length > 0) parts.push(`已阻止同名文件 ${skipDuplicates.length} 个（${skipDuplicates.slice(0, 5).join(', ')}${skipDuplicates.length > 5 ? ' 等' : ''}）`);
+    if (failed.length > 0) parts.push(`上传失败 ${failed.length} 个`);
+    if (parts.length === 0) {
+      alert('未上传任何文件（可能均为同名或失败）');
+    } else {
+      alert(parts.join('；'));
+    }
   } catch (error) {
     console.error('Upload failed:', error);
     alert(`上传失败: ${(error as Error).message}`);
@@ -65,12 +137,49 @@ createFolderBtn.addEventListener('click', async () => {
 
   try {
     const path = currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
-    await fs.mkdir(path);
+    await fs.promises.mkdir(path, { recursive: true });
     await refreshFileList();
+    try { await sorter.onEntriesAdded(currentPath, [folderName]); } catch {}
     alert('文件夹创建成功');
   } catch (error) {
     console.error('Create folder failed:', error);
     alert(`创建文件夹失败: ${(error as Error).message}`);
+  }
+});
+
+// Create symlink
+createSymlinkBtn?.addEventListener('click', async () => {
+  const target = prompt('请输入软链接的目标路径（可以是文件或目录）：');
+  if (!target) return;
+  const name = prompt('请输入软链接名称：');
+  if (!name) return;
+  const linkPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+  try {
+    await fs.promises.symlink(target, linkPath);
+    await refreshFileList();
+    try { await sorter.onEntriesAdded(currentPath, [name]); } catch {}
+    alert('软链接创建成功');
+  } catch (error) {
+    console.error('Create symlink failed:', error);
+    alert(`创建软链接失败: ${(error as Error).message}`);
+  }
+});
+
+// Create hard link (only file supported)
+createHardlinkBtn?.addEventListener('click', async () => {
+  const src = prompt('请输入要创建硬链接的源文件路径（仅支持文件）：');
+  if (!src) return;
+  const name = prompt('请输入硬链接名称：');
+  if (!name) return;
+  const dest = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+  try {
+    await fs.promises.link(src, dest);
+    await refreshFileList();
+    try { await sorter.onEntriesAdded(currentPath, [name]); } catch {}
+    alert('硬链接创建成功');
+  } catch (error) {
+    console.error('Create hardlink failed:', error);
+    alert(`创建硬链接失败: ${(error as Error).message}`);
   }
 });
 
@@ -79,11 +188,19 @@ clearAllBtn.addEventListener('click', async () => {
   if (!confirm('确定要清空所有文件吗？此操作不可撤销！')) return;
 
   try {
-    await fs.clear();
+    // 清空根目录下的所有内容
+    const dirents = await fs.promises.readdir('/', { withFileTypes: true } as any);
+    for (const name of Array.isArray(dirents) ? dirents : []) {
+      const p = name && typeof (name as any).name === 'string' ? `/${(name as any).name}` : '/';
+      if (p !== '/') {
+        await fs.promises.rm(p, { recursive: true, force: true } as any);
+      }
+    }
     currentPath = '/';
     clipboard = null;
     updateClipboardUI();
     await refreshFileList();
+    try { await sorter.clear('/'); } catch {}
     alert('所有文件已清空');
   } catch (error) {
     console.error('Clear failed:', error);
@@ -100,11 +217,17 @@ pasteBtn.addEventListener('click', async () => {
     const destPath = currentPath === '/' ? `/${fileName}` : `${currentPath}/${fileName}`;
 
     if (clipboard.type === 'copy') {
-      await fs.copy(clipboard.path, destPath);
+      await copyPath(clipboard.path, destPath);
       alert('复制成功');
+      try { await sorter.onEntriesAdded(currentPath, [fileName]); } catch {}
     } else {
-      await fs.move(clipboard.path, destPath);
+      await fs.promises.rename(clipboard.path, destPath);
       alert('移动成功');
+      try {
+        const srcDir = parentOf(clipboard.path);
+        const destDir = currentPath;
+        await sorter.onEntriesMoved(srcDir, destDir, [fileName]);
+      } catch {}
       clipboard = null;
       updateClipboardUI();
     }
@@ -119,17 +242,116 @@ pasteBtn.addEventListener('click', async () => {
 // Refresh file list
 async function refreshFileList() {
   try {
-    const files = await fs.propfind(currentPath);
+    const list = await listUIItems(currentPath);
     currentPathSpan.textContent = currentPath;
-    renderFileList(files);
+    // 同步排序配置到控件
+    try {
+      const cfg = await sorter.getConfig(currentPath);
+      currentSortMode = cfg.mode as any;
+      currentSortOrder = cfg.order as any;
+      if (sortModeSel) sortModeSel.value = cfg.mode;
+      if (sortOrderSel) sortOrderSel.value = cfg.order;
+      renderFileList(list, cfg.mode === 'manual');
+    } catch {
+      renderFileList(list, false);
+    }
+    // 同步刷新存储信息
+    await refreshStorageInfo();
   } catch (error) {
     console.error('Refresh failed:', error);
     fileList.innerHTML = '<div class="empty-state">❌ 加载失败</div>';
   }
 }
 
+// Search integration
+async function performSearch(term: string, base: string): Promise<void> {
+  const mySeq = ++searchSeq;
+  if (searchStatus) searchStatus.textContent = '搜索中…';
+  // 显示占位
+  fileList.innerHTML = '<div class="empty-state">🔎 正在搜索…</div>';
+
+  term = term.trim();
+  if (!term) {
+    // 空查询恢复列表
+    if (searchStatus) searchStatus.textContent = '';
+    await refreshFileList();
+    return;
+  }
+
+  try {
+    const results = await searchRecursive(base, term, 500);
+    // 若有新搜索发起，丢弃当前结果
+    if (mySeq !== searchSeq) return;
+    currentPathSpan.textContent = base;
+    renderFileList(results);
+    if (searchStatus) searchStatus.textContent = `找到 ${results.length} 项`;
+  } catch (e) {
+    if (mySeq !== searchSeq) return;
+    console.error('Search failed:', e);
+    fileList.innerHTML = '<div class="empty-state">❌ 搜索失败</div>';
+    if (searchStatus) searchStatus.textContent = '搜索失败';
+  } finally {
+    // no-op
+  }
+}
+
+// 递归搜索（BFS），按名称包含匹配；避免跟随符号链接以防循环
+async function searchRecursive(base: string, term: string, maxResults = 500): Promise<UIItem[]> {
+  const queue: string[] = [base];
+  const results: UIItem[] = [];
+  const visited = new Set<string>();
+  const lower = term.toLowerCase();
+
+  while (queue.length > 0) {
+    const dir = queue.shift()!;
+    if (visited.has(dir)) continue;
+    visited.add(dir);
+    let dirents: any[] = [];
+    try {
+      dirents = await fs.promises.readdir(dir, { withFileTypes: true } as any);
+    } catch {
+      continue;
+    }
+
+    for (const d of dirents as any[]) {
+      const name = (d as any).name as string;
+      const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
+
+      try {
+        const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+        // 不跟随符号链接深入，避免环
+        const statTarget = isSymlink ? await fs.promises.lstat(full) : await fs.promises.stat(full);
+        const isDir = (statTarget as any).isDirectory && (statTarget as any).isDirectory();
+        const isFile = (statTarget as any).isFile && (statTarget as any).isFile();
+
+        // 名称匹配则加入结果
+        if (name.toLowerCase().includes(lower)) {
+          const ui: UIItem = {
+            path: full,
+            name,
+            type: isSymlink ? 'symlink' : (isDir ? 'directory' : 'file'),
+            size: (statTarget as any).size ?? 0,
+            modifiedAt: (statTarget as any).mtimeMs ?? Date.now(),
+            linkTarget: isSymlink ? await fs.promises.readlink(full).catch(() => '') : undefined,
+          };
+          results.push(ui);
+          if (results.length >= maxResults) return results;
+        }
+
+        // 仅对真实目录继续 BFS（不跟随符号链接）
+        if (isDir && !isSymlink) {
+          queue.push(full);
+        }
+      } catch {
+        // 忽略无法访问的项
+      }
+    }
+  }
+  return results;
+}
+
 // Render file list
-function renderFileList(files: FileInfo[]) {
+function renderFileList(files: UIItem[], manualMode = false) {
   if (files.length === 0) {
     fileList.innerHTML = `
       <div class="empty-state">
@@ -140,34 +362,41 @@ function renderFileList(files: FileInfo[]) {
     return;
   }
 
-  // Sort: directories first, then by name
-  files.sort((a, b) => {
-    if (a.type !== b.type) {
-      return a.type === 'directory' ? -1 : 1;
-    }
-    return a.name.localeCompare(b.name);
-  });
+  // 已在 listUIItems 中应用 sorter.applySort，这里不再排序
+
+  lastRenderedFiles = files.slice();
 
   fileList.innerHTML = files
     .map((file) => {
-      const icon = file.type === 'directory' ? '📁' : '📄';
+      const icon = file.type === 'directory' ? '📁' : (file.type === 'symlink' ? '🔗' : '📄');
       const size =
         file.type === 'file' ? formatFileSize(file.size) : '-';
       const date = new Date(file.modifiedAt).toLocaleString('zh-CN');
+      const displayName = file.type === 'symlink' && file.linkTarget
+        ? `${file.name} -> ${file.linkTarget}`
+        : file.name;
+      const metaExtra = file.type === 'symlink' ? '链接' : '';
+      const safePath = escapeHtml(file.path);
+      const safeName = escapeHtml(file.name);
 
       return `
         <div class="file-item" data-path="${file.path}">
           <span class="file-icon">${icon}</span>
           <div class="file-info">
-            <div class="file-name" onclick="handleFileClick('${escapeHtml(file.path)}', '${file.type}')">${escapeHtml(file.name)}</div>
-            <div class="file-meta">${size} | ${date}</div>
+            <div class="file-name" onclick="handleFileClick('${safePath}', '${file.type}')">${escapeHtml(displayName)}</div>
+            <div class="file-meta">${metaExtra ? metaExtra + ' | ' : ''}${size} | ${date}</div>
           </div>
           <div class="file-actions">
-            ${file.type === 'file' ? `<button class="btn btn-primary btn-small" onclick="downloadFile('${escapeHtml(file.path)}')">下载</button>` : ''}
-            <button class="btn btn-secondary btn-small" onclick="showDetails('${escapeHtml(file.path)}')">详情</button>
-            <button class="btn btn-secondary btn-small" onclick="copyFile('${escapeHtml(file.path)}')">复制</button>
-            <button class="btn btn-secondary btn-small" onclick="cutFile('${escapeHtml(file.path)}')">剪切</button>
-            <button class="btn btn-danger btn-small" onclick="deleteFile('${escapeHtml(file.path)}')">删除</button>
+            ${file.type === 'file' ? `<button class="btn btn-primary btn-small" onclick="downloadFile('${safePath}')">下载</button>` : ''}
+            <button class="btn btn-secondary btn-small" onclick="showDetails('${safePath}')">详情</button>
+            <button class="btn btn-secondary btn-small" onclick="copyFile('${safePath}')">复制</button>
+            <button class="btn btn-secondary btn-small" onclick="cutFile('${safePath}')">剪切</button>
+            <button class="btn btn-danger btn-small" onclick="deleteFile('${safePath}')">删除</button>
+            ${manualMode ? `
+              <span class="divider" style="margin:0 4px; color:#999">|</span>
+              <button class="btn btn-secondary btn-small" onclick="moveUp('${safeName}')">上移</button>
+              <button class="btn btn-secondary btn-small" onclick="moveDown('${safeName}')">下移</button>
+            ` : ''}
           </div>
         </div>
       `;
@@ -177,25 +406,110 @@ function renderFileList(files: FileInfo[]) {
 
 // Handle file/folder click
 (window as any).handleFileClick = async (path: string, type: string) => {
-  if (type === 'directory') {
-    currentPath = path;
-    await refreshFileList();
+  try {
+    if (type === 'directory') {
+      currentPath = path;
+      await refreshFileList();
+      return;
+    }
+    if (type === 'symlink') {
+      // 若指向目录则进入目录，否则忽略（可在详情/下载操作）
+      const st = await fs.promises.stat(path);
+      if ((st as any).isDirectory()) {
+        // 解析目标路径用于导航
+        const target = await fs.promises.readlink(path).catch(() => path);
+        currentPath = target;
+        await refreshFileList();
+      }
+      return;
+    }
+  } catch (e) {
+    console.warn('handleFileClick failed', e);
   }
+};
+
+// 绑定搜索事件
+if (searchBtn && searchInput) {
+  searchBtn.addEventListener('click', async () => {
+    const base = (searchFromRoot && searchFromRoot.checked) ? '/' : currentPath;
+    await performSearch(searchInput.value, base);
+  });
+}
+
+if (searchInput) {
+  searchInput.addEventListener('keydown', async (e) => {
+    if (e.key === 'Enter') {
+      const base = (searchFromRoot && searchFromRoot.checked) ? '/' : currentPath;
+      await performSearch(searchInput.value, base);
+    }
+  });
+}
+
+if (clearSearchBtn && searchInput) {
+  clearSearchBtn.addEventListener('click', async () => {
+    searchInput.value = '';
+    if (searchStatus) searchStatus.textContent = '';
+    await refreshFileList();
+  });
+}
+
+// 绑定排序控件事件
+if (sortModeSel) {
+  sortModeSel.addEventListener('change', async () => {
+    const mode = sortModeSel.value as any;
+    try {
+      await sorter.setConfig(currentPath, { mode, order: currentSortOrder });
+    } catch (e) {
+      console.warn('setConfig(mode) failed', e);
+    }
+    await refreshFileList();
+  });
+}
+if (sortOrderSel) {
+  sortOrderSel.addEventListener('change', async () => {
+    const order = sortOrderSel.value as any;
+    try {
+      await sorter.setConfig(currentPath, { mode: currentSortMode, order });
+    } catch (e) {
+      console.warn('setConfig(order) failed', e);
+    }
+    await refreshFileList();
+  });
+}
+
+async function commitManualOrderFromView(newOrderNames: string[]) {
+  try {
+    await sorter.setManualOrder(currentPath, newOrderNames);
+  } catch (e) {
+    console.warn('setManualOrder failed', e);
+  }
+}
+
+(window as any).moveUp = async (name: string) => {
+  if (currentSortMode !== 'manual') return;
+  const order = lastRenderedFiles.map((f) => f.name);
+  const idx = order.indexOf(name);
+  if (idx <= 0) return;
+  [order[idx - 1], order[idx]] = [order[idx], order[idx - 1]];
+  await commitManualOrderFromView(order);
+  await refreshFileList();
+};
+
+(window as any).moveDown = async (name: string) => {
+  if (currentSortMode !== 'manual') return;
+  const order = lastRenderedFiles.map((f) => f.name);
+  const idx = order.indexOf(name);
+  if (idx < 0 || idx >= order.length - 1) return;
+  [order[idx], order[idx + 1]] = [order[idx + 1], order[idx]];
+  await commitManualOrderFromView(order);
+  await refreshFileList();
 };
 
 // Download file
 (window as any).downloadFile = async (path: string) => {
   try {
-    const content = await fs.get(path);
-    if (!content) {
-      alert('文件内容为空');
-      return;
-    }
-
-    const stat = await fs.stat(path);
-    const blob = new Blob([content], {
-      type: stat?.mimeType || 'application/octet-stream',
-    });
+    const content = await fs.promises.readFile(path);
+    const blob = new Blob([content as any], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -213,24 +527,43 @@ function renderFileList(files: FileInfo[]) {
 // Show details
 (window as any).showDetails = async (path: string) => {
   try {
-    const stat = await fs.stat(path);
-    if (!stat) {
-      alert('文件不存在');
-      return;
-    }
-
+    const lst = await fs.promises.lstat(path);
+    const st = await fs.promises.stat(path).catch(() => lst);
     modalTitle.textContent = '文件详情';
+    const name = path.split('/').pop() || '/';
+    const parent = parentOf(path) || '根目录';
+    const isLink = (lst as any).isSymbolicLink && (lst as any).isSymbolicLink();
+    const typeText = isLink ? '软链接' : (st.isDirectory() ? '文件夹' : (st.isFile() ? '文件' : '其他'));
+    const nlink = await (fs.promises as any).nlink(path).catch(() => 0);
+    const linkTarget = isLink ? await fs.promises.readlink(path).catch(() => '') : '';
+
+    const isDir = st.isDirectory();
+    const initialSizeText = isDir ? 'Loading：计算中' : formatFileSize((st as any).size ?? 0);
+
     modalBody.innerHTML = `
-      <p><strong>名称:</strong> ${escapeHtml(stat.name)}</p>
-      <p><strong>路径:</strong> ${escapeHtml(stat.path)}</p>
-      <p><strong>类型:</strong> ${stat.type === 'file' ? '文件' : '文件夹'}</p>
-      <p><strong>大小:</strong> ${formatFileSize(stat.size)}</p>
-      ${stat.mimeType ? `<p><strong>MIME类型:</strong> ${escapeHtml(stat.mimeType)}</p>` : ''}
-      <p><strong>创建时间:</strong> ${new Date(stat.createdAt).toLocaleString('zh-CN')}</p>
-      <p><strong>修改时间:</strong> ${new Date(stat.modifiedAt).toLocaleString('zh-CN')}</p>
-      <p><strong>父目录:</strong> ${escapeHtml(stat.parentPath) || '根目录'}</p>
+      <p><strong>名称:</strong> ${escapeHtml(name)}</p>
+      <p><strong>路径:</strong> ${escapeHtml(path)}</p>
+      <p><strong>类型:</strong> ${typeText}</p>
+      <p><strong>大小:</strong> <span id="details-size">${initialSizeText}</span></p>
+      <p><strong>创建时间:</strong> ${new Date((st as any).birthtimeMs || 0).toLocaleString('zh-CN')}</p>
+      <p><strong>修改时间:</strong> ${new Date(st.mtimeMs || 0).toLocaleString('zh-CN')}</p>
+      <p><strong>父目录:</strong> ${escapeHtml(parent)}</p>
+      ${isLink ? `<p><strong>链接目标:</strong> ${escapeHtml(linkTarget)}</p>` : ''}
+      ${st.isFile() ? `<p><strong>硬链接计数:</strong> ${nlink}</p>` : ''}
     `;
     modal.classList.remove('hidden');
+
+    // 如为目录，异步递归计算并更新显示
+    if (isDir) {
+      try {
+        const total = await dirSizeRecursive(path);
+        const el = document.getElementById('details-size');
+        if (el) el.textContent = formatFileSize(total);
+      } catch (e) {
+        const el = document.getElementById('details-size');
+        if (el) el.textContent = '计算失败';
+      }
+    }
   } catch (error) {
     console.error('Show details failed:', error);
     alert(`获取详情失败: ${(error as Error).message}`);
@@ -254,8 +587,13 @@ function renderFileList(files: FileInfo[]) {
   if (!confirm(`确定要删除 ${path} 吗？`)) return;
 
   try {
-    await fs.delete(path);
+    await fs.promises.rm(path, { recursive: true, force: true } as any);
     await refreshFileList();
+    try {
+      const dir = parentOf(path);
+      const name = baseOf(path);
+      await sorter.onEntriesRemoved(dir || '/', [name]);
+    } catch {}
     alert('删除成功');
   } catch (error) {
     console.error('Delete failed:', error);
@@ -319,3 +657,213 @@ document.querySelector('.current-path')?.before(backButton);
 
 // Initialize app
 init();
+
+// 申请持久化按钮
+if (requestPersistBtn) {
+  requestPersistBtn.addEventListener('click', async () => {
+    try {
+      const storage: any = (navigator as any).storage;
+      if (!storage || typeof storage.persist !== 'function') {
+        alert('当前浏览器不支持持久化请求');
+        return;
+      }
+      const before = typeof storage.persisted === 'function' ? await storage.persisted() : false;
+      const ok = await storage.persist().catch(() => false);
+      const after = typeof storage.persisted === 'function' ? await storage.persisted() : false;
+      if (ok || after || before) {
+        alert('已启用持久化存储');
+      } else {
+        alert('未授予持久化权限，可能需要满足 PWA/安装等条件');
+      }
+      await refreshStorageInfo();
+    } catch (e) {
+      console.error(e);
+      alert('请求持久化失败');
+    }
+  });
+}
+
+// 仅在同源首次上传前提示持久化授权
+async function ensurePersistenceBeforeUpload(): Promise<void> {
+  const key = 'fs_demo_persist_prompted';
+  const storage: any = (navigator as any).storage;
+  const persisted = typeof storage?.persisted === 'function' ? await storage.persisted() : false;
+  if (persisted) {
+    localStorage.setItem(key, '1');
+    return;
+  }
+  if (localStorage.getItem(key) === '1') return;
+
+  return new Promise<void>((resolve) => {
+    modalTitle.textContent = '是否允许持久化存储？';
+    modalBody.innerHTML = '';
+    const desc = document.createElement('p');
+    desc.textContent = '为避免浏览器在空间紧张时清理数据，建议开启持久化存储。我们将向浏览器请求“持久化”权限。';
+    const actions = document.createElement('div');
+    actions.style.marginTop = '12px';
+    const agree = document.createElement('button');
+    agree.className = 'btn btn-primary';
+    agree.textContent = '同意并请求';
+    const cancel = document.createElement('button');
+    cancel.className = 'btn btn-secondary';
+    cancel.style.marginLeft = '8px';
+    cancel.textContent = '暂不';
+    actions.appendChild(agree);
+    actions.appendChild(cancel);
+    modalBody.appendChild(desc);
+    modalBody.appendChild(actions);
+    modal.classList.remove('hidden');
+
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      agree.onclick = null;
+      cancel.onclick = null;
+    };
+
+    agree.onclick = async () => {
+      try {
+        await new Promise<void>((res) => {
+          (fs as any).requestPersistentStorage((err: any, ok?: boolean) => {
+            if (err) {
+              alert('请求持久化失败：' + (err?.message || err));
+            }
+            res();
+          });
+        });
+      } catch {}
+      localStorage.setItem(key, '1');
+      cleanup();
+      await refreshStorageInfo();
+      resolve();
+    };
+    cancel.onclick = () => {
+      localStorage.setItem(key, '1');
+      cleanup();
+      resolve();
+    };
+  });
+}
+
+async function refreshStorageInfo() {
+  try {
+    const storage: any = (navigator as any).storage;
+    const persisted = typeof storage?.persisted === 'function' ? await storage.persisted() : false;
+    if (persistStatusEl) persistStatusEl.textContent = persisted ? '已持久化' : '未持久化';
+
+    const info = await (fs as any).diskUsage().catch(() => null);
+    if (info && usedSpaceEl && totalSpaceEl) {
+      const total = (info as any).total as number;
+      const avail = (info as any).available as number;
+      const used = Math.max(0, total - avail);
+      usedSpaceEl.textContent = formatFileSize(used);
+      totalSpaceEl.textContent = formatFileSize(total);
+    }
+  } catch (e) {
+    // ignore
+  }
+}
+
+// Helpers
+function parentOf(path: string): string {
+  if (path === '/') return '';
+  const idx = path.lastIndexOf('/');
+  return idx <= 0 ? '/' : path.slice(0, idx);
+}
+
+function baseOf(path: string): string {
+  if (path === '/') return '/';
+  const idx = path.lastIndexOf('/');
+  return path.slice(idx + 1);
+}
+
+async function listUIItems(dir: string): Promise<UIItem[]> {
+  const dirents = await fs.promises.readdir(dir, { withFileTypes: true } as any);
+  const items: UIItem[] = [];
+  for (const d of dirents as any[]) {
+    const name = d.name as string;
+    const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
+    try {
+      const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+      const lst = isSymlink ? await fs.promises.lstat(full) : null;
+      const st = await fs.promises.stat(full).catch(() => lst as any);
+      const linkTarget = isSymlink ? await fs.promises.readlink(full).catch(() => '') : '';
+      const nlink = st && (st as any).isFile && (st as any).isFile() ? await (fs.promises as any).nlink(full).catch(() => 0) : 0;
+      items.push({
+        path: full,
+        name,
+        type: isSymlink ? 'symlink' : (st.isDirectory() ? 'directory' : 'file'),
+        size: st.size ?? 0,
+        modifiedAt: st.mtimeMs ?? Date.now(),
+        linkTarget: isSymlink ? linkTarget : undefined,
+        nlink: nlink || undefined,
+      });
+    } catch {
+      // ignore entries that fail stat
+    }
+  }
+  // 应用排序（列表模式）
+  try {
+    const sorted = await sorter.applySort(dir, items, { view: 'list' });
+    return sorted;
+  } catch {
+    return items;
+  }
+}
+
+async function copyPath(src: string, dest: string): Promise<void> {
+  const st = await fs.promises.stat(src);
+  if (st.isDirectory()) {
+    await fs.promises.mkdir(dest, { recursive: true });
+    const dirents = await fs.promises.readdir(src, { withFileTypes: true } as any);
+    for (const d of dirents as any[]) {
+      const name = d.name as string;
+      const childSrc = src === '/' ? `/${name}` : `${src}/${name}`;
+      const childDest = dest === '/' ? `/${name}` : `${dest}/${name}`;
+      await copyPath(childSrc, childDest);
+    }
+  } else {
+    await fs.promises.copyFile(src, dest);
+  }
+}
+
+// Recursively calculate size of a directory. Skips symlinks to avoid cycles.
+async function dirSizeRecursive(target: string): Promise<number> {
+  try {
+    const lst = await fs.promises.lstat(target);
+    const st = await fs.promises.stat(target).catch(() => lst);
+    if ((st as any).isFile && st.isFile()) {
+      return (st as any).size ?? 0;
+    }
+    if ((st as any).isDirectory && st.isDirectory()) {
+      let total = 0;
+      const dirents = await fs.promises.readdir(target, { withFileTypes: true } as any);
+      for (const d of dirents as any[]) {
+        const name = (d as any).name as string;
+        const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+        if (isSymlink) continue;
+        const child = target === '/' ? `/${name}` : `${target}/${name}`;
+        if (typeof (d as any).isDirectory === 'function' && (d as any).isDirectory()) {
+          total += await dirSizeRecursive(child);
+        } else if (typeof (d as any).isFile === 'function' && (d as any).isFile()) {
+          try {
+            const cst = await fs.promises.stat(child);
+            total += (cst as any).size ?? 0;
+          } catch {}
+        } else {
+          // Fallback stat for unknown types
+          try {
+            const cst = await fs.promises.stat(child);
+            if ((cst as any).isFile && cst.isFile()) total += (cst as any).size ?? 0;
+            else if ((cst as any).isDirectory && cst.isDirectory()) total += await dirSizeRecursive(child);
+          } catch {}
+        }
+      }
+      return total;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
+// note: dirSizeRecursive 已实现于上方

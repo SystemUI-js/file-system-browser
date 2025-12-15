@@ -1,153 +1,45 @@
-# @system-ui-js/file-system-browser
 
-一个基于 IndexedDB 的 WebDAV 风格文件系统库，用于在浏览器中持久化存储文件。
+### 存储持久化与磁盘空间（新）
 
-## 特性
+浏览器可能在空间紧张时清理站点数据。为尽量避免此情况，你可以请求“持久化存储”授权：
 
-- 🗄️ 基于 IndexedDB 的持久化存储
-- 📁 完整的文件系统操作（创建、读取、更新、删除）
-- 🔄 支持文件和文件夹的复制、移动
-- 📊 WebDAV 风格的 API 设计
-- 💾 支持 Blob 和 ArrayBuffer
-- 🎯 TypeScript 类型支持
-- 🚀 零依赖
+```ts
+// Promise 方式
+const persisted = await fs.promises.requestPersistentStorage();
+console.log('persisted:', persisted);
 
-## 安装
-
-```bash
-npm install @system-ui-js/file-system-browser
-# 或
-yarn add @system-ui-js/file-system-browser
+// 回调方式（Node 风格 error-first）
+fs.requestPersistentStorage((err, ok) => {
+  if (err) {
+    console.error('request persistent failed:', err);
+    return;
+  }
+  console.log('persisted:', ok);
+});
 ```
 
-## 使用示例
+获取当前站点的可用/总空间（近似值，来源于 `navigator.storage.estimate()`），API 对齐 Node.js 的 `fs.diskUsage`（返回 `total`、`free`、`available`，此处 `free≈available`）：
 
-### 基本用法
+```ts
+// Promise 方式
+const info = await fs.promises.diskUsage();
+// { total: number, free: number, available: number }
+console.log('quota:', info.total, 'free:', info.free, 'available:', info.available);
 
-```typescript
-import { FileSystem } from '@system-ui-js/file-system-browser';
+// 回调方式
+fs.diskUsage((err, info) => {
+  if (err) return console.error(err);
+  console.log(info);
+});
 
-// 创建文件系统实例
-const fs = new FileSystem();
-
-// 初始化
-await fs.init();
-
-// 上传文件
-const file = new File(['Hello World'], 'hello.txt', { type: 'text/plain' });
-await fs.put('/hello.txt', file);
-
-// 读取文件
-const content = await fs.get('/hello.txt');
-console.log(new TextDecoder().decode(content));
-
-// 创建目录
-await fs.mkdir('/documents');
-
-// 列出目录内容
-const files = await fs.propfind('/');
-console.log(files);
-
-// 复制文件
-await fs.copy('/hello.txt', '/documents/hello-copy.txt');
-
-// 移动文件
-await fs.move('/hello.txt', '/documents/hello.txt');
-
-// 删除文件
-await fs.delete('/documents/hello.txt');
-
-// 获取文件信息
-const stat = await fs.stat('/documents/hello-copy.txt');
-console.log(stat);
-
-// 检查文件是否存在
-const exists = await fs.exists('/documents/hello-copy.txt');
-console.log(exists);
-
-// 清空所有文件
-await fs.clear();
+// BigInt 结果
+const infoBig = await fs.promises.diskUsage({ bigint: true });
+// { total: bigint, free: bigint, available: bigint }
 ```
 
-## API 文档
-
-### FileSystem
-
-#### `async init(): Promise<void>`
-
-初始化文件系统。必须在使用其他方法之前调用。
-
-#### `async put(path: string, content: ArrayBuffer | Blob, mimeType?: string): Promise<void>`
-
-上传或更新文件。
-
-- `path`: 文件路径
-- `content`: 文件内容（ArrayBuffer 或 Blob）
-- `mimeType`: MIME 类型（可选，如果 content 是 Blob 则自动获取）
-
-#### `async get(path: string): Promise<ArrayBuffer | null>`
-
-读取文件内容。
-
-#### `async delete(path: string): Promise<void>`
-
-删除文件或目录（递归删除）。
-
-#### `async copy(sourcePath: string, destPath: string): Promise<void>`
-
-复制文件或目录。
-
-#### `async move(sourcePath: string, destPath: string): Promise<void>`
-
-移动文件或目录。
-
-#### `async propfind(path: string): Promise<FileInfo[]>`
-
-列出目录内容或获取文件信息。
-
-#### `async mkdir(path: string): Promise<void>`
-
-创建目录。
-
-#### `async exists(path: string): Promise<boolean>`
-
-检查路径是否存在。
-
-#### `async stat(path: string): Promise<FileInfo | null>`
-
-获取文件或目录的详细信息。
-
-#### `async clear(): Promise<void>`
-
-清空文件系统中的所有文件。
-
-### FileInfo
-
-```typescript
-interface FileInfo {
-  path: string;
-  name: string;
-  type: 'file' | 'directory';
-  size: number;
-  mimeType?: string;
-  createdAt: number;
-  modifiedAt: number;
-  parentPath: string;
-}
-```
-
-## Demo
-
-访问 [在线 Demo](https://system-ui-js.github.io/file-system/) 查看实际效果。
-
-Demo 展示了以下功能：
-- 文件上传
-- 创建文件夹
-- 文件列表展示
-- 文件下载
-- 文件/文件夹的复制、剪切、粘贴
-- 查看文件详情
-- 删除文件/文件夹
+注意：
+- 这些能力依赖于浏览器的 Storage API（`navigator.storage.persisted/persist/estimate`）。在不支持的环境中，请自行做兼容处理。
+- 返回值为近似估计，具体行为与配额政策由浏览器实现决定。
 
 ## 开发
 
@@ -178,3 +70,49 @@ MIT License
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+## 目录排序（新）
+
+排序不是文件系统（fs）本身的职责，因此本库将“排序状态”独立管理，提供一个与 `fs` 并列的工具单例 `sorter`，并使用单独的 IndexedDB 表进行持久化（不会污染 `fs` 的数据库结构）。
+
+能力概览：
+
+- 每个目录可单独保存排序配置：`mode` ∈ `name | createdAt | modifiedAt | size | manual`，`order` ∈ `asc | desc`
+- 自由排序（manual）：
+  - 列表模式下：使用 `manualOrder` 按名称顺序排列
+  - 图标模式下：使用 `iconPositions` 记录每个子项的摆放坐标（x,y）
+- 迁移/复制项目到其他目录时，自动清理源目录对应子项的自由排序信息，并将目标目录的对应条目附加到末尾（不设置坐标，交给 UI 决定）。
+
+导出位置：
+
+```ts
+import fs, { sorter } from '@system-ui-js/file-system-browser';
+```
+
+核心 API：
+
+```ts
+// 获取/设置目录排序配置
+const cfg = await sorter.getConfig('/documents');
+await sorter.setConfig('/documents', { mode: 'name', order: 'asc' });
+
+// 应用排序（仅对传入的 entries 排序，不修改持久化）
+const sorted = await sorter.applySort('/documents', entries, { view: 'list' });
+
+// 设置自由排序
+await sorter.setManualOrder('/documents', ['a.txt', 'b.txt', 'c.txt']);
+await sorter.setIconPositions('/pictures', { 'a.jpg': { x: 120, y: 80 } });
+
+// 在文件操作后调用（Demo 已示范调用时机）
+await sorter.onEntriesAdded('/documents', ['new.txt']);
+await sorter.onEntriesRemoved('/documents', ['old.txt']);
+await sorter.onEntriesMoved('/from', '/to', ['moved.txt']);
+```
+
+类型：`DirSortConfig`, `SortMode`, `SortOrder`, `IconPosition` 也一并导出。
+
+注意：
+
+- `sorter` 的键默认使用“子项名称”（同一目录下唯一）。如你的 UI 使用完整路径作为唯一标识，可在接入层做转换。
+- 常规排序会“目录靠前，同类比较”。自由排序时不进行目录/文件分组，由 `manualOrder`/`iconPositions` 决定顺序。
+- 该模块与 `fs` 解耦。你可以在任何地方拿到目录条目后调用 `sorter.applySort()` 进行排序。

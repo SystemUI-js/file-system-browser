@@ -3,7 +3,7 @@ import { resolve } from 'path';
 
 export default defineConfig({
   root: 'demo',
-  base: '/file-system/',
+  base: '/file-system-browser/',
   server: {
     port: 9973,
   },
