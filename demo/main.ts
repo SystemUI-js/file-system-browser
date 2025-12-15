@@ -1,5 +1,25 @@
-import fs from '@system-ui-js/file-system-browser';
+import fs, {
+  Dirent,
+  SortMode,
+  SortOrder,
+} from '@system-ui-js/file-system-browser';
 import { sorter } from '@system-ui-js/file-system-browser';
+
+declare global {
+  interface Window {
+    handleFileClick: (
+      path: string,
+      type: 'file' | 'directory' | 'symlink'
+    ) => Promise<void>;
+    moveUp: (name: string) => Promise<void>;
+    moveDown: (name: string) => Promise<void>;
+    downloadFile: (path: string) => Promise<void>;
+    showDetails: (path: string) => Promise<void>;
+    copyFile: (path: string) => void;
+    cutFile: (path: string) => void;
+    deleteFile: (path: string) => Promise<void>;
+  }
+}
 
 type UIItem = {
   path: string;
@@ -108,11 +128,11 @@ uploadBtn.addEventListener('click', async () => {
     // 获取当前目录已存在的名称集合，用于同名校验
     const existedNames = new Set<string>();
     try {
-      const dirents = await fs.promises.readdir(currentPath, {
+      const dirents = (await fs.promises.readdir(currentPath, {
         withFileTypes: true,
-      } as any);
-      for (const d of dirents as any[]) {
-        existedNames.add((d as any).name || '');
+      })) as Dirent[];
+      for (const d of dirents) {
+        existedNames.add(d.name || '');
       }
     } catch {
       // ignore, 若读取失败，按无文件处理
@@ -208,7 +228,7 @@ createSymlinkBtn?.addEventListener('click', async () => {
   }
 });
 
-// Create hard link (only file supported)
+// Create a hard link (only file supported)
 createHardlinkBtn?.addEventListener('click', async () => {
   const src = prompt('请输入要创建硬链接的源文件路径（仅支持文件）：');
   if (!src) return;
@@ -238,14 +258,11 @@ clearAllBtn.addEventListener('click', async () => {
     // 清空根目录下的所有内容
     const dirents = await fs.promises.readdir('/', {
       withFileTypes: true,
-    } as any);
+    });
     for (const name of Array.isArray(dirents) ? dirents : []) {
-      const p =
-        name && typeof (name as any).name === 'string'
-          ? `/${(name as any).name}`
-          : '/';
+      const p = name && typeof name.name === 'string' ? `/${name.name}` : '/';
       if (p !== '/') {
-        await fs.promises.rm(p, { recursive: true, force: true } as any);
+        await fs.promises.rm(p, { recursive: true, force: true });
       }
     }
     currentPath = '/';
@@ -310,8 +327,8 @@ async function refreshFileList() {
     // 同步排序配置到控件
     try {
       const cfg = await sorter.getConfig(currentPath);
-      currentSortMode = cfg.mode as any;
-      currentSortOrder = cfg.order as any;
+      currentSortMode = cfg.mode;
+      currentSortOrder = cfg.order;
       if (sortModeSel) sortModeSel.value = cfg.mode;
       if (sortOrderSel) sortOrderSel.value = cfg.order;
       renderFileList(list, cfg.mode === 'manual');
@@ -373,27 +390,25 @@ async function searchRecursive(
     const dir = queue.shift()!;
     if (visited.has(dir)) continue;
     visited.add(dir);
-    let dirents: any[] = [];
+    let dirents: string[] | Dirent[] = [];
     try {
-      dirents = await fs.promises.readdir(dir, { withFileTypes: true } as any);
+      dirents = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
 
-    for (const d of dirents as any[]) {
-      const name = (d as any).name as string;
+    for (const d of dirents) {
+      const name = d.name;
       const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
 
       try {
         const isSymlink =
-          typeof (d as any).isSymbolicLink === 'function' &&
-          (d as any).isSymbolicLink();
+          typeof d.isSymbolicLink === 'function' && d.isSymbolicLink();
         // 不跟随符号链接深入，避免环
         const statTarget = isSymlink
           ? await fs.promises.lstat(full)
           : await fs.promises.stat(full);
-        const isDir =
-          (statTarget as any).isDirectory && (statTarget as any).isDirectory();
+        const isDir = statTarget.isDirectory && statTarget.isDirectory();
 
         // 名称匹配则加入结果
         if (name.toLowerCase().includes(lower)) {
@@ -401,8 +416,8 @@ async function searchRecursive(
             path: full,
             name,
             type: isSymlink ? 'symlink' : isDir ? 'directory' : 'file',
-            size: (statTarget as any).size ?? 0,
-            modifiedAt: (statTarget as any).mtimeMs ?? Date.now(),
+            size: statTarget.size ?? 0,
+            modifiedAt: statTarget.mtimeMs ?? Date.now(),
             linkTarget: isSymlink
               ? await fs.promises.readlink(full).catch(() => '')
               : undefined,
@@ -487,7 +502,10 @@ function renderFileList(files: UIItem[], manualMode = false) {
 }
 
 // Handle file/folder click
-(window as any).handleFileClick = async (path: string, type: string) => {
+window.handleFileClick = async (
+  path: string,
+  type: 'file' | 'directory' | 'symlink'
+) => {
   try {
     if (type === 'directory') {
       currentPath = path;
@@ -497,7 +515,7 @@ function renderFileList(files: UIItem[], manualMode = false) {
     if (type === 'symlink') {
       // 若指向目录则进入目录，否则忽略（可在详情/下载操作）
       const st = await fs.promises.stat(path);
-      if ((st as any).isDirectory()) {
+      if (st.isDirectory()) {
         // 解析目标路径用于导航
         const target = await fs.promises.readlink(path).catch(() => path);
         currentPath = target;
@@ -538,7 +556,7 @@ if (clearSearchBtn && searchInput) {
 // 绑定排序控件事件
 if (sortModeSel) {
   sortModeSel.addEventListener('change', async () => {
-    const mode = sortModeSel.value as any;
+    const mode = sortModeSel.value as SortMode;
     try {
       await sorter.setConfig(currentPath, { mode, order: currentSortOrder });
     } catch (e) {
@@ -549,7 +567,7 @@ if (sortModeSel) {
 }
 if (sortOrderSel) {
   sortOrderSel.addEventListener('change', async () => {
-    const order = sortOrderSel.value as any;
+    const order = sortOrderSel.value as SortOrder;
     try {
       await sorter.setConfig(currentPath, { mode: currentSortMode, order });
     } catch (e) {
@@ -567,7 +585,7 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
   }
 }
 
-(window as any).moveUp = async (name: string) => {
+window.moveUp = async (name: string) => {
   if (currentSortMode !== 'manual') return;
   const order = lastRenderedFiles.map((f) => f.name);
   const idx = order.indexOf(name);
@@ -577,7 +595,7 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
   await refreshFileList();
 };
 
-(window as any).moveDown = async (name: string) => {
+window.moveDown = async (name: string) => {
   if (currentSortMode !== 'manual') return;
   const order = lastRenderedFiles.map((f) => f.name);
   const idx = order.indexOf(name);
@@ -588,10 +606,10 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
 };
 
 // Download file
-(window as any).downloadFile = async (path: string) => {
+window.downloadFile = async (path: string) => {
   try {
     const content = await fs.promises.readFile(path);
-    const blob = new Blob([content as any], {
+    const blob = new Blob([content], {
       type: 'application/octet-stream',
     });
     const url = URL.createObjectURL(blob);
@@ -609,14 +627,15 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
 };
 
 // Show details
-(window as any).showDetails = async (path: string) => {
+window.showDetails = async (path: string) => {
   try {
     const lst = await fs.promises.lstat(path);
     const st = await fs.promises.stat(path).catch(() => lst);
     modalTitle.textContent = '文件详情';
     const name = path.split('/').pop() || '/';
     const parent = parentOf(path) || '根目录';
-    const isLink = (lst as any).isSymbolicLink && (lst as any).isSymbolicLink();
+    const isLink =
+      typeof lst.isSymbolicLink === 'function' && lst.isSymbolicLink();
     const typeText = isLink
       ? '软链接'
       : st.isDirectory()
@@ -624,7 +643,7 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
         : st.isFile()
           ? '文件'
           : '其他';
-    const nlink = await (fs.promises as any).nlink(path).catch(() => 0);
+    const nlink = await fs.promises.nlink(path).catch(() => 0);
     const linkTarget = isLink
       ? await fs.promises.readlink(path).catch(() => '')
       : '';
@@ -632,14 +651,14 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
     const isDir = st.isDirectory();
     const initialSizeText = isDir
       ? 'Loading：计算中'
-      : formatFileSize((st as any).size ?? 0);
+      : formatFileSize(st.size ?? 0);
 
     modalBody.innerHTML = `
       <p><strong>名称:</strong> ${escapeHtml(name)}</p>
       <p><strong>路径:</strong> ${escapeHtml(path)}</p>
       <p><strong>类型:</strong> ${typeText}</p>
       <p><strong>大小:</strong> <span id="details-size">${initialSizeText}</span></p>
-      <p><strong>创建时间:</strong> ${new Date((st as any).birthtimeMs || 0).toLocaleString('zh-CN')}</p>
+      <p><strong>创建时间:</strong> ${new Date(st.birthtimeMs || 0).toLocaleString('zh-CN')}</p>
       <p><strong>修改时间:</strong> ${new Date(st.mtimeMs || 0).toLocaleString('zh-CN')}</p>
       <p><strong>父目录:</strong> ${escapeHtml(parent)}</p>
       ${isLink ? `<p><strong>链接目标:</strong> ${escapeHtml(linkTarget)}</p>` : ''}
@@ -665,23 +684,23 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
 };
 
 // Copy file
-(window as any).copyFile = (path: string) => {
+window.copyFile = (path: string) => {
   clipboard = { type: 'copy', path };
   updateClipboardUI();
 };
 
 // Cut file
-(window as any).cutFile = (path: string) => {
+window.cutFile = (path: string) => {
   clipboard = { type: 'cut', path };
   updateClipboardUI();
 };
 
 // Delete file
-(window as any).deleteFile = async (path: string) => {
+window.deleteFile = async (path: string) => {
   if (!confirm(`确定要删除 ${path} 吗？`)) return;
 
   try {
-    await fs.promises.rm(path, { recursive: true, force: true } as any);
+    await fs.promises.rm(path, { recursive: true, force: true });
     await refreshFileList();
     try {
       const dir = parentOf(path);
@@ -758,7 +777,7 @@ init();
 if (requestPersistBtn) {
   requestPersistBtn.addEventListener('click', async () => {
     try {
-      const storage: any = (navigator as any).storage;
+      const storage = navigator.storage;
       if (!storage || typeof storage.persist !== 'function') {
         alert('当前浏览器不支持持久化请求');
         return;
@@ -788,7 +807,7 @@ if (requestPersistBtn) {
 // 仅在同源首次上传前提示持久化授权
 async function ensurePersistenceBeforeUpload(): Promise<void> {
   const key = 'fs_demo_persist_prompted';
-  const storage: any = (navigator as any).storage;
+  const storage = navigator.storage;
   const persisted =
     typeof storage?.persisted === 'function'
       ? await storage.persisted()
@@ -829,7 +848,7 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
     agree.onclick = async () => {
       try {
         await new Promise<void>((res) => {
-          (fs as any).requestPersistentStorage((err: any, _ok?: boolean) => {
+          fs.requestPersistentStorage((err: any, _ok?: boolean) => {
             if (err) {
               alert('请求持久化失败：' + (err?.message || err));
             }
@@ -854,7 +873,7 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
 
 async function refreshStorageInfo() {
   try {
-    const storage: any = (navigator as any).storage;
+    const storage = navigator.storage;
     const persisted =
       typeof storage?.persisted === 'function'
         ? await storage.persisted()
@@ -862,10 +881,10 @@ async function refreshStorageInfo() {
     if (persistStatusEl)
       persistStatusEl.textContent = persisted ? '已持久化' : '未持久化';
 
-    const info = await (fs as any).diskUsage().catch(() => null);
+    const info = await fs.diskUsage()?.catch(() => null);
     if (info && usedSpaceEl && totalSpaceEl) {
-      const total = (info as any).total as number;
-      const avail = (info as any).available as number;
+      const total = info.total as number;
+      const avail = info.available as number;
       const used = Math.max(0, total - avail);
       usedSpaceEl.textContent = formatFileSize(used);
       totalSpaceEl.textContent = formatFileSize(total);
@@ -889,26 +908,24 @@ function baseOf(path: string): string {
 }
 
 async function listUIItems(dir: string): Promise<UIItem[]> {
-  const dirents = await fs.promises.readdir(dir, {
+  const dirents = (await fs.promises.readdir(dir, {
     withFileTypes: true,
-  } as any);
+  })) as Dirent[];
   const items: UIItem[] = [];
-  for (const d of dirents as any[]) {
-    const name = d.name as string;
+  for (const d of dirents) {
+    const name = d.name;
     const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
     try {
-      const isSymlink =
-        typeof (d as any).isSymbolicLink === 'function' &&
-        (d as any).isSymbolicLink();
-      const lst = isSymlink ? await fs.promises.lstat(full) : null;
-      const st = await fs.promises.stat(full).catch(() => lst as any);
+      const isSymlink = d.isSymbolicLink();
+      const lst = isSymlink ? await fs.promises.lstat(full) : undefined;
+      const st = (await fs.promises.stat(full).catch(() => undefined)) ?? lst;
+      if (!st) continue;
       const linkTarget = isSymlink
         ? await fs.promises.readlink(full).catch(() => '')
         : '';
-      const nlink =
-        st && (st as any).isFile && (st as any).isFile()
-          ? await (fs.promises as any).nlink(full).catch(() => 0)
-          : 0;
+      const nlink = st.isFile()
+        ? await fs.promises.nlink(full).catch(() => 0)
+        : 0;
       items.push({
         path: full,
         name,
@@ -937,8 +954,8 @@ async function copyPath(src: string, dest: string): Promise<void> {
     await fs.promises.mkdir(dest, { recursive: true });
     const dirents = await fs.promises.readdir(src, {
       withFileTypes: true,
-    } as any);
-    for (const d of dirents as any[]) {
+    });
+    for (const d of dirents) {
       const name = d.name as string;
       const childSrc = src === '/' ? `/${name}` : `${src}/${name}`;
       const childDest = dest === '/' ? `/${name}` : `${dest}/${name}`;
@@ -954,33 +971,25 @@ async function dirSizeRecursive(target: string): Promise<number> {
   try {
     const lst = await fs.promises.lstat(target);
     const st = await fs.promises.stat(target).catch(() => lst);
-    if ((st as any).isFile && st.isFile()) {
-      return (st as any).size ?? 0;
+    if (st.isFile()) {
+      return st.size ?? 0;
     }
-    if ((st as any).isDirectory && st.isDirectory()) {
+    if (st.isDirectory()) {
       let total = 0;
-      const dirents = await fs.promises.readdir(target, {
+      const dirents = (await fs.promises.readdir(target, {
         withFileTypes: true,
-      } as any);
-      for (const d of dirents as any[]) {
-        const name = (d as any).name as string;
-        const isSymlink =
-          typeof (d as any).isSymbolicLink === 'function' &&
-          (d as any).isSymbolicLink();
+      })) as Dirent[];
+      for (const d of dirents) {
+        const name = d.name;
+        const isSymlink = d.isSymbolicLink();
         if (isSymlink) continue;
         const child = target === '/' ? `/${name}` : `${target}/${name}`;
-        if (
-          typeof (d as any).isDirectory === 'function' &&
-          (d as any).isDirectory()
-        ) {
+        if (d.isDirectory()) {
           total += await dirSizeRecursive(child);
-        } else if (
-          typeof (d as any).isFile === 'function' &&
-          (d as any).isFile()
-        ) {
+        } else if (d.isFile()) {
           try {
             const cst = await fs.promises.stat(child);
-            total += (cst as any).size ?? 0;
+            total += cst.size ?? 0;
           } catch (e) {
             void 0;
           }
@@ -988,10 +997,8 @@ async function dirSizeRecursive(target: string): Promise<number> {
           // Fallback stat for unknown types
           try {
             const cst = await fs.promises.stat(child);
-            if ((cst as any).isFile && cst.isFile())
-              total += (cst as any).size ?? 0;
-            else if ((cst as any).isDirectory && cst.isDirectory())
-              total += await dirSizeRecursive(child);
+            if (cst.isFile()) total += cst.size ?? 0;
+            else if (cst.isDirectory()) total += await dirSizeRecursive(child);
           } catch (e) {
             void 0;
           }

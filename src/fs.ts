@@ -92,7 +92,7 @@ export class Stats {
     this.birthtimeMs = entry.createdAt;
     this.mode = 0o666; // no permission model in browser
     // extend: symlink identified via type === 'symlink'
-    this._type = (entry as any).type === 'symlink' ? 'symlink' : entry.type;
+    this._type = entry.type === 'symlink' ? 'symlink' : entry.type;
   }
   isFile() {
     return this._type === 'file';
@@ -227,7 +227,7 @@ async function resolveSymlink(
       return { path: p, entry: undefined };
     }
     if (e.type === 'symlink') {
-      const target = (e as any).linkTarget as string;
+      const target = e.linkTarget as string;
       if (!target) throw new Error(`EINVAL: invalid symlink '${p}'`);
       const np = norm(target);
       if (seen.has(np))
@@ -242,7 +242,7 @@ async function resolveSymlink(
 }
 
 // Read helpers
-function outByEncoding(buf: Uint8Array, encoding?: string): any {
+function outByEncoding(buf: Uint8Array, encoding?: string) {
   if (!encoding) return new BufferPolyfill(buf);
   return new BufferPolyfill(buf).toString(encoding);
 }
@@ -365,7 +365,7 @@ async function removeInternal(
     for (const c of children) await removeInternal(c.path, true, force);
   }
   await db.delete(path);
-  emitWatch(path, 'rename', entry, null as any);
+  emitWatch(path, 'rename', entry, null);
 }
 
 async function renameInternal(oldPath: string, newPath: string): Promise<void> {
@@ -421,8 +421,8 @@ function parseEncOpt(options?: EncOpt): {
   flag?: string;
 } {
   if (!options) return {};
-  if (typeof options === 'string') return { encoding: options } as any;
-  return options as any;
+  if (typeof options === 'string') return { encoding: options };
+  return options;
 }
 
 // promises implementation
@@ -458,7 +458,7 @@ async function fdWrite(
   const buf =
     typeof bufOrStr === 'string'
       ? BufferPolyfill.from(bufOrStr)
-      : new BufferPolyfill(bufOrStr as any);
+      : new BufferPolyfill(bufOrStr);
   let data = await readFileInternal(fd.path).catch(() => new Uint8Array());
   const start = position ?? fd.position;
   const needed = start + (length ?? buf.length);
@@ -477,8 +477,43 @@ async function fdWrite(
   return { bytesWritten: toWrite.length, buffer: bufOrStr };
 }
 
+// readdir Promise API with overloads to differentiate return types by withFileTypes option
+function readdirPromise(
+  path: string,
+  options: { withFileTypes: true; encoding?: BufferEncoding } | BufferEncoding
+): Promise<Dirent[]>;
+function readdirPromise(
+  path: string,
+  options?:
+    | { withFileTypes?: false; encoding?: BufferEncoding }
+    | BufferEncoding
+): Promise<string[]>;
+async function readdirPromise(
+  path: string,
+  options?:
+    | { withFileTypes?: boolean; encoding?: BufferEncoding }
+    | BufferEncoding
+): Promise<Array<Dirent | string>> {
+  await ensureInit();
+  path = norm(path);
+  const withFileTypes =
+    typeof options === 'object' ? !!options.withFileTypes : false;
+  const dir = await db.get(path);
+  if (!dir)
+    throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
+  if (dir.type !== 'directory')
+    throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
+  const list = await db.getByParentPath(path);
+  if (withFileTypes) {
+    return list.map(
+      (e) => new Dirent(e.name, e.type === 'symlink' ? 'symlink' : e.type)
+    );
+  }
+  return list.map((e) => e.name);
+}
+
 const promises = {
-  async readFile(path: string | number, options?: EncOpt): Promise<any> {
+  async readFile(path: string | number, options?: EncOpt) {
     if (typeof path === 'number') {
       const fd = fdTable.get(path);
       if (!fd) throw new Error(`EBADF: bad file descriptor, read`);
@@ -493,7 +528,7 @@ const promises = {
 
   async writeFile(
     file: string | number,
-    data: any,
+    data: Iterable<number>,
     options?:
       | {
           encoding?: BufferEncoding | null;
@@ -507,7 +542,7 @@ const promises = {
       typeof options === 'string' ? options : options?.encoding || undefined;
     const buf =
       BufferPolyfill.isBuffer(data) || data instanceof Uint8Array
-        ? new BufferPolyfill(data as any)
+        ? new BufferPolyfill(data)
         : BufferPolyfill.fromString(String(data), enc || 'utf8');
     if (typeof file === 'number') {
       const fd = fdTable.get(file);
@@ -520,7 +555,7 @@ const promises = {
 
   async appendFile(
     file: string | number,
-    data: any,
+    data: Iterable<number>,
     options?:
       | BufferEncoding
       | {
@@ -534,7 +569,7 @@ const promises = {
       typeof options === 'string' ? options : options?.encoding || undefined;
     const add =
       BufferPolyfill.isBuffer(data) || data instanceof Uint8Array
-        ? new BufferPolyfill(data as any)
+        ? new BufferPolyfill(data)
         : BufferPolyfill.fromString(String(data), enc || 'utf8');
     const targetPath =
       typeof file === 'number'
@@ -565,30 +600,7 @@ const promises = {
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     await mkdirInternal(path, recursive);
   },
-  async readdir(
-    path: string,
-    options?:
-      | { withFileTypes?: boolean; encoding?: BufferEncoding }
-      | BufferEncoding
-  ): Promise<any> {
-    await ensureInit();
-    path = norm(path);
-    const withFileTypes =
-      typeof options === 'object' ? !!options.withFileTypes : false;
-    const dir = await db.get(path);
-    if (!dir)
-      throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
-    if (dir.type !== 'directory')
-      throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
-    const list = await db.getByParentPath(path);
-    if (withFileTypes) {
-      return list.map(
-        (e) =>
-          new Dirent(e.name, (e as any).type === 'symlink' ? 'symlink' : e.type)
-      );
-    }
-    return list.map((e) => e.name);
-  },
+  readdir: readdirPromise,
   async rm(
     path: string,
     options?: { recursive?: boolean; force?: boolean }
@@ -607,14 +619,14 @@ const promises = {
     const e = r.entry;
     if (!e)
       throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
-    return new Stats(e as any);
+    return new Stats(e);
   },
   async lstat(path: string): Promise<Stats> {
     await ensureInit();
     const e = await db.get(norm(path));
     if (!e)
       throw new Error(`ENOENT: no such file or directory, lstat '${path}'`);
-    return new Stats(e as any);
+    return new Stats(e);
   },
   async readlink(path: string): Promise<string> {
     await ensureInit();
@@ -623,7 +635,7 @@ const promises = {
       throw new Error(`ENOENT: no such file or directory, readlink '${path}'`);
     if (e.type !== 'symlink')
       throw new Error(`EINVAL: invalid argument, readlink '${path}'`);
-    return (e as any).linkTarget || '';
+    return e.linkTarget || '';
   },
   async symlink(target: string, path: string): Promise<void> {
     await ensureInit();
@@ -658,7 +670,7 @@ const promises = {
       parentPath: parent,
     };
     await db.put(entry);
-    emitWatch(path, 'rename', null as any, entry);
+    emitWatch(path, 'rename', null, entry);
   },
   async link(existingPath: string, newPath: string): Promise<void> {
     await ensureInit();
@@ -707,7 +719,7 @@ const promises = {
       parentPath: parent,
     };
     await db.put(newEntry);
-    emitWatch(newPath, 'rename', null as any, newEntry);
+    emitWatch(newPath, 'rename', null, newEntry);
   },
   async exists(path: string): Promise<boolean> {
     return !!(await pathExists(path));
@@ -775,7 +787,7 @@ const promises = {
         offset?: number,
         length?: number,
         position?: number | null
-      ) => fdWrite(fd, bufOrStr as any, offset, length, position),
+      ) => fdWrite(fd, bufOrStr, offset, length, position),
     };
   },
   async read(
@@ -794,7 +806,7 @@ const promises = {
     length?: number,
     position?: number | null
   ) {
-    return fdWrite(fd, buffer as any, offset, length, position);
+    return fdWrite(fd, buffer, offset, length, position);
   },
   async close(fd: number) {
     fdTable.delete(fd);
@@ -805,7 +817,7 @@ const promises = {
    * Returns true if already persisted or successfully persisted.
    */
   async requestPersistentStorage(): Promise<boolean> {
-    const ns: any = (globalThis as any).navigator?.storage;
+    const ns = globalThis.navigator?.storage;
     if (!ns)
       throw new Error('StorageManager is not available in this environment');
     if (typeof ns.persisted === 'function') {
@@ -839,15 +851,15 @@ const promises = {
     const opts =
       typeof pathOrOptions === 'object' &&
       pathOrOptions &&
-      typeof (pathOrOptions as any).bigint !== 'undefined'
+      typeof pathOrOptions.bigint !== 'undefined'
         ? (pathOrOptions as { bigint?: boolean })
         : options || {};
-    const sm: any = (globalThis as any).navigator?.storage;
+    const sm = globalThis.navigator?.storage;
     if (!sm || typeof sm.estimate !== 'function') {
       const zero = opts?.bigint
         ? { total: 0n, free: 0n, available: 0n }
         : { total: 0, free: 0, available: 0 };
-      return zero as any;
+      return zero;
     }
     const est = await sm.estimate();
     const quota = est.quota ?? 0;
@@ -860,9 +872,9 @@ const promises = {
         total: BigInt(Math.floor(total)),
         free: BigInt(Math.floor(free)),
         available: BigInt(Math.floor(available)),
-      } as any;
+      };
     }
-    return { total, free, available } as any;
+    return { total, free, available };
   },
 };
 
@@ -916,11 +928,8 @@ function createReadStream(path: string, opts?: { highWaterMark?: number }) {
     }
   })();
   return {
-    on(
-      ev: keyof ReadStreamEvents,
-      h: ReadStreamEvents[keyof ReadStreamEvents]
-    ) {
-      (listeners[ev] as any[]).push(h as any);
+    on<E extends keyof ReadStreamEvents>(ev: E, h: ReadStreamEvents[E]) {
+      listeners[ev].push(h);
       return this;
     },
     pause() {
@@ -959,8 +968,8 @@ function createWriteStream(path: string) {
   return {
     async write(chunk: Uint8Array | BufferPolyfill | string) {
       const b =
-        BufferPolyfill.isBuffer(chunk as any) || chunk instanceof Uint8Array
-          ? new Uint8Array(chunk as any)
+        BufferPolyfill.isBuffer(chunk) || chunk instanceof Uint8Array
+          ? new Uint8Array(chunk)
           : BufferPolyfill.from(String(chunk));
       buffer = BufferPolyfill.concat([buffer, b]);
       return true;
@@ -974,11 +983,8 @@ function createWriteStream(path: string) {
         listeners.error.forEach((h) => h(e));
       }
     },
-    on(
-      ev: keyof WriteStreamEvents,
-      h: WriteStreamEvents[keyof WriteStreamEvents]
-    ) {
-      (listeners[ev] as any[]).push(h as any);
+    on<E extends keyof WriteStreamEvents>(ev: E, h: WriteStreamEvents[E]) {
+      listeners[ev].push(h);
       return this;
     },
   };
@@ -1123,7 +1129,7 @@ export const fs = {
 
   // storage-related helpers
   requestPersistentStorage: cbWrap(promises.requestPersistentStorage),
-  diskUsage: cbWrap(promises.diskUsage as any),
+  diskUsage: cbWrap(promises.diskUsage),
 
   // sync method names but still Promise-based as requested
   readFileSync: cbWrap(promises.readFile),
@@ -1162,8 +1168,7 @@ export const fs = {
       length?: number,
       position?: number | null
     ) =>
-      (await promises.write(fd, buffer as any, offset, length, position))
-        .bytesWritten
+      (await promises.write(fd, buffer, offset, length, position)).bytesWritten
   ),
 
   // streams
