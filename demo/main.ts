@@ -1,4 +1,5 @@
-import fs, { sorter } from '@system-ui-js/file-system-browser';
+import fs from '@system-ui-js/file-system-browser';
+import { sorter } from '@system-ui-js/file-system-browser';
 
 type UIItem = {
   path: string;
@@ -19,8 +20,12 @@ const createFolderBtn = document.getElementById(
   'createFolderBtn'
 ) as HTMLButtonElement;
 const clearAllBtn = document.getElementById('clearAllBtn') as HTMLButtonElement;
-const createSymlinkBtn = document.getElementById('createSymlinkBtn') as HTMLButtonElement;
-const createHardlinkBtn = document.getElementById('createHardlinkBtn') as HTMLButtonElement;
+const createSymlinkBtn = document.getElementById(
+  'createSymlinkBtn'
+) as HTMLButtonElement;
+const createHardlinkBtn = document.getElementById(
+  'createHardlinkBtn'
+) as HTMLButtonElement;
 const fileList = document.getElementById('fileList') as HTMLDivElement;
 const currentPathSpan = document.getElementById(
   'currentPath'
@@ -34,23 +39,46 @@ const modalTitle = document.getElementById('modalTitle') as HTMLHeadingElement;
 const modalBody = document.getElementById('modalBody') as HTMLDivElement;
 const closeModal = document.querySelector('.close') as HTMLSpanElement;
 // storage info elements
-const persistStatusEl = document.getElementById('persistStatus') as HTMLSpanElement | null;
-const usedSpaceEl = document.getElementById('usedSpace') as HTMLSpanElement | null;
-const totalSpaceEl = document.getElementById('totalSpace') as HTMLSpanElement | null;
-const requestPersistBtn = document.getElementById('requestPersistBtn') as HTMLButtonElement | null;
+const persistStatusEl = document.getElementById(
+  'persistStatus'
+) as HTMLSpanElement | null;
+const usedSpaceEl = document.getElementById(
+  'usedSpace'
+) as HTMLSpanElement | null;
+const totalSpaceEl = document.getElementById(
+  'totalSpace'
+) as HTMLSpanElement | null;
+const requestPersistBtn = document.getElementById(
+  'requestPersistBtn'
+) as HTMLButtonElement | null;
 // search elements
-const searchInput = document.getElementById('searchInput') as HTMLInputElement | null;
-const searchBtn = document.getElementById('searchBtn') as HTMLButtonElement | null;
-const clearSearchBtn = document.getElementById('clearSearchBtn') as HTMLButtonElement | null;
-const searchFromRoot = document.getElementById('searchFromRoot') as HTMLInputElement | null;
-const searchStatus = document.getElementById('searchStatus') as HTMLSpanElement | null;
+const searchInput = document.getElementById(
+  'searchInput'
+) as HTMLInputElement | null;
+const searchBtn = document.getElementById(
+  'searchBtn'
+) as HTMLButtonElement | null;
+const clearSearchBtn = document.getElementById(
+  'clearSearchBtn'
+) as HTMLButtonElement | null;
+const searchFromRoot = document.getElementById(
+  'searchFromRoot'
+) as HTMLInputElement | null;
+const searchStatus = document.getElementById(
+  'searchStatus'
+) as HTMLSpanElement | null;
 // sort controls
-const sortModeSel = document.getElementById('sortMode') as HTMLSelectElement | null;
-const sortOrderSel = document.getElementById('sortOrder') as HTMLSelectElement | null;
+const sortModeSel = document.getElementById(
+  'sortMode'
+) as HTMLSelectElement | null;
+const sortOrderSel = document.getElementById(
+  'sortOrder'
+) as HTMLSelectElement | null;
 
 let searchSeq = 0; // 防止竞态：仅展示最后一次搜索结果
 let lastRenderedFiles: UIItem[] = [];
-let currentSortMode: 'name' | 'createdAt' | 'modifiedAt' | 'size' | 'manual' = 'name';
+let currentSortMode: 'name' | 'createdAt' | 'modifiedAt' | 'size' | 'manual' =
+  'name';
 let currentSortOrder: 'asc' | 'desc' = 'asc';
 
 // Initialize (fs 会在首次调用时自动初始化)
@@ -80,7 +108,9 @@ uploadBtn.addEventListener('click', async () => {
     // 获取当前目录已存在的名称集合，用于同名校验
     const existedNames = new Set<string>();
     try {
-      const dirents = await fs.promises.readdir(currentPath, { withFileTypes: true } as any);
+      const dirents = await fs.promises.readdir(currentPath, {
+        withFileTypes: true,
+      } as any);
       for (const d of dirents as any[]) {
         existedNames.add((d as any).name || '');
       }
@@ -89,8 +119,8 @@ uploadBtn.addEventListener('click', async () => {
     }
 
     let successCount = 0;
-    let skipDuplicates: string[] = [];
-    let failed: { name: string; reason: string }[] = [];
+    const skipDuplicates: string[] = [];
+    const failed: { name: string; reason: string }[] = [];
 
     for (const file of Array.from(files)) {
       // 同名禁止上传
@@ -99,7 +129,8 @@ uploadBtn.addEventListener('click', async () => {
         continue;
       }
       try {
-        const path = currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
+        const path =
+          currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
         const buf = new Uint8Array(await file.arrayBuffer());
         await fs.promises.writeFile(path, buf);
         successCount++;
@@ -117,7 +148,10 @@ uploadBtn.addEventListener('click', async () => {
     // 组合提示信息
     const parts: string[] = [];
     if (successCount > 0) parts.push(`成功上传 ${successCount} 个文件`);
-    if (skipDuplicates.length > 0) parts.push(`已阻止同名文件 ${skipDuplicates.length} 个（${skipDuplicates.slice(0, 5).join(', ')}${skipDuplicates.length > 5 ? ' 等' : ''}）`);
+    if (skipDuplicates.length > 0)
+      parts.push(
+        `已阻止同名文件 ${skipDuplicates.length} 个（${skipDuplicates.slice(0, 5).join(', ')}${skipDuplicates.length > 5 ? ' 等' : ''}）`
+      );
     if (failed.length > 0) parts.push(`上传失败 ${failed.length} 个`);
     if (parts.length === 0) {
       alert('未上传任何文件（可能均为同名或失败）');
@@ -136,10 +170,15 @@ createFolderBtn.addEventListener('click', async () => {
   if (!folderName) return;
 
   try {
-    const path = currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
+    const path =
+      currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
     await fs.promises.mkdir(path, { recursive: true });
     await refreshFileList();
-    try { await sorter.onEntriesAdded(currentPath, [folderName]); } catch {}
+    try {
+      await sorter.onEntriesAdded(currentPath, [folderName]);
+    } catch (e) {
+      void 0;
+    }
     alert('文件夹创建成功');
   } catch (error) {
     console.error('Create folder failed:', error);
@@ -157,7 +196,11 @@ createSymlinkBtn?.addEventListener('click', async () => {
   try {
     await fs.promises.symlink(target, linkPath);
     await refreshFileList();
-    try { await sorter.onEntriesAdded(currentPath, [name]); } catch {}
+    try {
+      await sorter.onEntriesAdded(currentPath, [name]);
+    } catch (e) {
+      void 0;
+    }
     alert('软链接创建成功');
   } catch (error) {
     console.error('Create symlink failed:', error);
@@ -175,7 +218,11 @@ createHardlinkBtn?.addEventListener('click', async () => {
   try {
     await fs.promises.link(src, dest);
     await refreshFileList();
-    try { await sorter.onEntriesAdded(currentPath, [name]); } catch {}
+    try {
+      await sorter.onEntriesAdded(currentPath, [name]);
+    } catch (e) {
+      void 0;
+    }
     alert('硬链接创建成功');
   } catch (error) {
     console.error('Create hardlink failed:', error);
@@ -189,9 +236,14 @@ clearAllBtn.addEventListener('click', async () => {
 
   try {
     // 清空根目录下的所有内容
-    const dirents = await fs.promises.readdir('/', { withFileTypes: true } as any);
+    const dirents = await fs.promises.readdir('/', {
+      withFileTypes: true,
+    } as any);
     for (const name of Array.isArray(dirents) ? dirents : []) {
-      const p = name && typeof (name as any).name === 'string' ? `/${(name as any).name}` : '/';
+      const p =
+        name && typeof (name as any).name === 'string'
+          ? `/${(name as any).name}`
+          : '/';
       if (p !== '/') {
         await fs.promises.rm(p, { recursive: true, force: true } as any);
       }
@@ -200,7 +252,11 @@ clearAllBtn.addEventListener('click', async () => {
     clipboard = null;
     updateClipboardUI();
     await refreshFileList();
-    try { await sorter.clear('/'); } catch {}
+    try {
+      await sorter.clear('/');
+    } catch (e) {
+      void 0;
+    }
     alert('所有文件已清空');
   } catch (error) {
     console.error('Clear failed:', error);
@@ -214,12 +270,17 @@ pasteBtn.addEventListener('click', async () => {
 
   try {
     const fileName = clipboard.path.split('/').pop() || '';
-    const destPath = currentPath === '/' ? `/${fileName}` : `${currentPath}/${fileName}`;
+    const destPath =
+      currentPath === '/' ? `/${fileName}` : `${currentPath}/${fileName}`;
 
     if (clipboard.type === 'copy') {
       await copyPath(clipboard.path, destPath);
       alert('复制成功');
-      try { await sorter.onEntriesAdded(currentPath, [fileName]); } catch {}
+      try {
+        await sorter.onEntriesAdded(currentPath, [fileName]);
+      } catch (e) {
+        void 0;
+      }
     } else {
       await fs.promises.rename(clipboard.path, destPath);
       alert('移动成功');
@@ -227,7 +288,9 @@ pasteBtn.addEventListener('click', async () => {
         const srcDir = parentOf(clipboard.path);
         const destDir = currentPath;
         await sorter.onEntriesMoved(srcDir, destDir, [fileName]);
-      } catch {}
+      } catch (e) {
+        void 0;
+      }
       clipboard = null;
       updateClipboardUI();
     }
@@ -296,7 +359,11 @@ async function performSearch(term: string, base: string): Promise<void> {
 }
 
 // 递归搜索（BFS），按名称包含匹配；避免跟随符号链接以防循环
-async function searchRecursive(base: string, term: string, maxResults = 500): Promise<UIItem[]> {
+async function searchRecursive(
+  base: string,
+  term: string,
+  maxResults = 500
+): Promise<UIItem[]> {
   const queue: string[] = [base];
   const results: UIItem[] = [];
   const visited = new Set<string>();
@@ -318,21 +385,27 @@ async function searchRecursive(base: string, term: string, maxResults = 500): Pr
       const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
 
       try {
-        const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+        const isSymlink =
+          typeof (d as any).isSymbolicLink === 'function' &&
+          (d as any).isSymbolicLink();
         // 不跟随符号链接深入，避免环
-        const statTarget = isSymlink ? await fs.promises.lstat(full) : await fs.promises.stat(full);
-        const isDir = (statTarget as any).isDirectory && (statTarget as any).isDirectory();
-        const isFile = (statTarget as any).isFile && (statTarget as any).isFile();
+        const statTarget = isSymlink
+          ? await fs.promises.lstat(full)
+          : await fs.promises.stat(full);
+        const isDir =
+          (statTarget as any).isDirectory && (statTarget as any).isDirectory();
 
         // 名称匹配则加入结果
         if (name.toLowerCase().includes(lower)) {
           const ui: UIItem = {
             path: full,
             name,
-            type: isSymlink ? 'symlink' : (isDir ? 'directory' : 'file'),
+            type: isSymlink ? 'symlink' : isDir ? 'directory' : 'file',
             size: (statTarget as any).size ?? 0,
             modifiedAt: (statTarget as any).mtimeMs ?? Date.now(),
-            linkTarget: isSymlink ? await fs.promises.readlink(full).catch(() => '') : undefined,
+            linkTarget: isSymlink
+              ? await fs.promises.readlink(full).catch(() => '')
+              : undefined,
           };
           results.push(ui);
           if (results.length >= maxResults) return results;
@@ -368,13 +441,18 @@ function renderFileList(files: UIItem[], manualMode = false) {
 
   fileList.innerHTML = files
     .map((file) => {
-      const icon = file.type === 'directory' ? '📁' : (file.type === 'symlink' ? '🔗' : '📄');
-      const size =
-        file.type === 'file' ? formatFileSize(file.size) : '-';
+      const icon =
+        file.type === 'directory'
+          ? '📁'
+          : file.type === 'symlink'
+            ? '🔗'
+            : '📄';
+      const size = file.type === 'file' ? formatFileSize(file.size) : '-';
       const date = new Date(file.modifiedAt).toLocaleString('zh-CN');
-      const displayName = file.type === 'symlink' && file.linkTarget
-        ? `${file.name} -> ${file.linkTarget}`
-        : file.name;
+      const displayName =
+        file.type === 'symlink' && file.linkTarget
+          ? `${file.name} -> ${file.linkTarget}`
+          : file.name;
       const metaExtra = file.type === 'symlink' ? '链接' : '';
       const safePath = escapeHtml(file.path);
       const safeName = escapeHtml(file.name);
@@ -392,11 +470,15 @@ function renderFileList(files: UIItem[], manualMode = false) {
             <button class="btn btn-secondary btn-small" onclick="copyFile('${safePath}')">复制</button>
             <button class="btn btn-secondary btn-small" onclick="cutFile('${safePath}')">剪切</button>
             <button class="btn btn-danger btn-small" onclick="deleteFile('${safePath}')">删除</button>
-            ${manualMode ? `
+            ${
+              manualMode
+                ? `
               <span class="divider" style="margin:0 4px; color:#999">|</span>
               <button class="btn btn-secondary btn-small" onclick="moveUp('${safeName}')">上移</button>
               <button class="btn btn-secondary btn-small" onclick="moveDown('${safeName}')">下移</button>
-            ` : ''}
+            `
+                : ''
+            }
           </div>
         </div>
       `;
@@ -431,7 +513,7 @@ function renderFileList(files: UIItem[], manualMode = false) {
 // 绑定搜索事件
 if (searchBtn && searchInput) {
   searchBtn.addEventListener('click', async () => {
-    const base = (searchFromRoot && searchFromRoot.checked) ? '/' : currentPath;
+    const base = searchFromRoot && searchFromRoot.checked ? '/' : currentPath;
     await performSearch(searchInput.value, base);
   });
 }
@@ -439,7 +521,7 @@ if (searchBtn && searchInput) {
 if (searchInput) {
   searchInput.addEventListener('keydown', async (e) => {
     if (e.key === 'Enter') {
-      const base = (searchFromRoot && searchFromRoot.checked) ? '/' : currentPath;
+      const base = searchFromRoot && searchFromRoot.checked ? '/' : currentPath;
       await performSearch(searchInput.value, base);
     }
   });
@@ -509,7 +591,9 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
 (window as any).downloadFile = async (path: string) => {
   try {
     const content = await fs.promises.readFile(path);
-    const blob = new Blob([content as any], { type: 'application/octet-stream' });
+    const blob = new Blob([content as any], {
+      type: 'application/octet-stream',
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -533,12 +617,22 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
     const name = path.split('/').pop() || '/';
     const parent = parentOf(path) || '根目录';
     const isLink = (lst as any).isSymbolicLink && (lst as any).isSymbolicLink();
-    const typeText = isLink ? '软链接' : (st.isDirectory() ? '文件夹' : (st.isFile() ? '文件' : '其他'));
+    const typeText = isLink
+      ? '软链接'
+      : st.isDirectory()
+        ? '文件夹'
+        : st.isFile()
+          ? '文件'
+          : '其他';
     const nlink = await (fs.promises as any).nlink(path).catch(() => 0);
-    const linkTarget = isLink ? await fs.promises.readlink(path).catch(() => '') : '';
+    const linkTarget = isLink
+      ? await fs.promises.readlink(path).catch(() => '')
+      : '';
 
     const isDir = st.isDirectory();
-    const initialSizeText = isDir ? 'Loading：计算中' : formatFileSize((st as any).size ?? 0);
+    const initialSizeText = isDir
+      ? 'Loading：计算中'
+      : formatFileSize((st as any).size ?? 0);
 
     modalBody.innerHTML = `
       <p><strong>名称:</strong> ${escapeHtml(name)}</p>
@@ -593,7 +687,9 @@ async function commitManualOrderFromView(newOrderNames: string[]) {
       const dir = parentOf(path);
       const name = baseOf(path);
       await sorter.onEntriesRemoved(dir || '/', [name]);
-    } catch {}
+    } catch (e) {
+      void 0;
+    }
     alert('删除成功');
   } catch (error) {
     console.error('Delete failed:', error);
@@ -621,7 +717,7 @@ function formatFileSize(bytes: number): string {
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
 }
 
 // Escape HTML
@@ -667,9 +763,15 @@ if (requestPersistBtn) {
         alert('当前浏览器不支持持久化请求');
         return;
       }
-      const before = typeof storage.persisted === 'function' ? await storage.persisted() : false;
+      const before =
+        typeof storage.persisted === 'function'
+          ? await storage.persisted()
+          : false;
       const ok = await storage.persist().catch(() => false);
-      const after = typeof storage.persisted === 'function' ? await storage.persisted() : false;
+      const after =
+        typeof storage.persisted === 'function'
+          ? await storage.persisted()
+          : false;
       if (ok || after || before) {
         alert('已启用持久化存储');
       } else {
@@ -687,7 +789,10 @@ if (requestPersistBtn) {
 async function ensurePersistenceBeforeUpload(): Promise<void> {
   const key = 'fs_demo_persist_prompted';
   const storage: any = (navigator as any).storage;
-  const persisted = typeof storage?.persisted === 'function' ? await storage.persisted() : false;
+  const persisted =
+    typeof storage?.persisted === 'function'
+      ? await storage.persisted()
+      : false;
   if (persisted) {
     localStorage.setItem(key, '1');
     return;
@@ -698,7 +803,8 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
     modalTitle.textContent = '是否允许持久化存储？';
     modalBody.innerHTML = '';
     const desc = document.createElement('p');
-    desc.textContent = '为避免浏览器在空间紧张时清理数据，建议开启持久化存储。我们将向浏览器请求“持久化”权限。';
+    desc.textContent =
+      '为避免浏览器在空间紧张时清理数据，建议开启持久化存储。我们将向浏览器请求“持久化”权限。';
     const actions = document.createElement('div');
     actions.style.marginTop = '12px';
     const agree = document.createElement('button');
@@ -723,14 +829,16 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
     agree.onclick = async () => {
       try {
         await new Promise<void>((res) => {
-          (fs as any).requestPersistentStorage((err: any, ok?: boolean) => {
+          (fs as any).requestPersistentStorage((err: any, _ok?: boolean) => {
             if (err) {
               alert('请求持久化失败：' + (err?.message || err));
             }
             res();
           });
         });
-      } catch {}
+      } catch (e) {
+        void 0;
+      }
       localStorage.setItem(key, '1');
       cleanup();
       await refreshStorageInfo();
@@ -747,8 +855,12 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
 async function refreshStorageInfo() {
   try {
     const storage: any = (navigator as any).storage;
-    const persisted = typeof storage?.persisted === 'function' ? await storage.persisted() : false;
-    if (persistStatusEl) persistStatusEl.textContent = persisted ? '已持久化' : '未持久化';
+    const persisted =
+      typeof storage?.persisted === 'function'
+        ? await storage.persisted()
+        : false;
+    if (persistStatusEl)
+      persistStatusEl.textContent = persisted ? '已持久化' : '未持久化';
 
     const info = await (fs as any).diskUsage().catch(() => null);
     if (info && usedSpaceEl && totalSpaceEl) {
@@ -777,21 +889,30 @@ function baseOf(path: string): string {
 }
 
 async function listUIItems(dir: string): Promise<UIItem[]> {
-  const dirents = await fs.promises.readdir(dir, { withFileTypes: true } as any);
+  const dirents = await fs.promises.readdir(dir, {
+    withFileTypes: true,
+  } as any);
   const items: UIItem[] = [];
   for (const d of dirents as any[]) {
     const name = d.name as string;
     const full = dir === '/' ? `/${name}` : `${dir}/${name}`;
     try {
-      const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+      const isSymlink =
+        typeof (d as any).isSymbolicLink === 'function' &&
+        (d as any).isSymbolicLink();
       const lst = isSymlink ? await fs.promises.lstat(full) : null;
       const st = await fs.promises.stat(full).catch(() => lst as any);
-      const linkTarget = isSymlink ? await fs.promises.readlink(full).catch(() => '') : '';
-      const nlink = st && (st as any).isFile && (st as any).isFile() ? await (fs.promises as any).nlink(full).catch(() => 0) : 0;
+      const linkTarget = isSymlink
+        ? await fs.promises.readlink(full).catch(() => '')
+        : '';
+      const nlink =
+        st && (st as any).isFile && (st as any).isFile()
+          ? await (fs.promises as any).nlink(full).catch(() => 0)
+          : 0;
       items.push({
         path: full,
         name,
-        type: isSymlink ? 'symlink' : (st.isDirectory() ? 'directory' : 'file'),
+        type: isSymlink ? 'symlink' : st.isDirectory() ? 'directory' : 'file',
         size: st.size ?? 0,
         modifiedAt: st.mtimeMs ?? Date.now(),
         linkTarget: isSymlink ? linkTarget : undefined,
@@ -814,7 +935,9 @@ async function copyPath(src: string, dest: string): Promise<void> {
   const st = await fs.promises.stat(src);
   if (st.isDirectory()) {
     await fs.promises.mkdir(dest, { recursive: true });
-    const dirents = await fs.promises.readdir(src, { withFileTypes: true } as any);
+    const dirents = await fs.promises.readdir(src, {
+      withFileTypes: true,
+    } as any);
     for (const d of dirents as any[]) {
       const name = d.name as string;
       const childSrc = src === '/' ? `/${name}` : `${src}/${name}`;
@@ -836,26 +959,42 @@ async function dirSizeRecursive(target: string): Promise<number> {
     }
     if ((st as any).isDirectory && st.isDirectory()) {
       let total = 0;
-      const dirents = await fs.promises.readdir(target, { withFileTypes: true } as any);
+      const dirents = await fs.promises.readdir(target, {
+        withFileTypes: true,
+      } as any);
       for (const d of dirents as any[]) {
         const name = (d as any).name as string;
-        const isSymlink = typeof (d as any).isSymbolicLink === 'function' && (d as any).isSymbolicLink();
+        const isSymlink =
+          typeof (d as any).isSymbolicLink === 'function' &&
+          (d as any).isSymbolicLink();
         if (isSymlink) continue;
         const child = target === '/' ? `/${name}` : `${target}/${name}`;
-        if (typeof (d as any).isDirectory === 'function' && (d as any).isDirectory()) {
+        if (
+          typeof (d as any).isDirectory === 'function' &&
+          (d as any).isDirectory()
+        ) {
           total += await dirSizeRecursive(child);
-        } else if (typeof (d as any).isFile === 'function' && (d as any).isFile()) {
+        } else if (
+          typeof (d as any).isFile === 'function' &&
+          (d as any).isFile()
+        ) {
           try {
             const cst = await fs.promises.stat(child);
             total += (cst as any).size ?? 0;
-          } catch {}
+          } catch (e) {
+            void 0;
+          }
         } else {
           // Fallback stat for unknown types
           try {
             const cst = await fs.promises.stat(child);
-            if ((cst as any).isFile && cst.isFile()) total += (cst as any).size ?? 0;
-            else if ((cst as any).isDirectory && cst.isDirectory()) total += await dirSizeRecursive(child);
-          } catch {}
+            if ((cst as any).isFile && cst.isFile())
+              total += (cst as any).size ?? 0;
+            else if ((cst as any).isDirectory && cst.isDirectory())
+              total += await dirSizeRecursive(child);
+          } catch (e) {
+            void 0;
+          }
         }
       }
       return total;

@@ -29,7 +29,11 @@ export class BufferPolyfill extends Uint8Array {
     throw new Error(`Unsupported encoding: ${encoding}`);
   }
 
-  static alloc(size: number, fill?: number | string, encoding: string = 'utf8'): BufferPolyfill {
+  static alloc(
+    size: number,
+    fill?: number | string,
+    encoding: string = 'utf8'
+  ): BufferPolyfill {
     const buf = new BufferPolyfill(size);
     if (fill !== undefined) {
       if (typeof fill === 'number') {
@@ -53,7 +57,7 @@ export class BufferPolyfill extends Uint8Array {
     return new BufferPolyfill(out);
   }
 
-  static isBuffer(obj: any): obj is BufferPolyfill {
+  static isBuffer(obj: unknown): obj is BufferPolyfill {
     return obj instanceof Uint8Array;
   }
 
@@ -64,7 +68,8 @@ export class BufferPolyfill extends Uint8Array {
     }
     if (encoding === 'base64') {
       let binary = '';
-      for (let i = 0; i < this.length; i++) binary += String.fromCharCode(this[i]);
+      for (let i = 0; i < this.length; i++)
+        binary += String.fromCharCode(this[i]);
       // btoa expects binary string
       return btoa(binary);
     }
@@ -89,9 +94,15 @@ export class Stats {
     // extend: symlink identified via type === 'symlink'
     this._type = (entry as any).type === 'symlink' ? 'symlink' : entry.type;
   }
-  isFile() { return this._type === 'file'; }
-  isDirectory() { return this._type === 'directory'; }
-  isSymbolicLink() { return this._type === 'symlink'; }
+  isFile() {
+    return this._type === 'file';
+  }
+  isDirectory() {
+    return this._type === 'directory';
+  }
+  isSymbolicLink() {
+    return this._type === 'symlink';
+  }
 }
 
 export class Dirent {
@@ -101,9 +112,15 @@ export class Dirent {
     this.name = name;
     this._type = type;
   }
-  isFile() { return this._type === 'file'; }
-  isDirectory() { return this._type === 'directory'; }
-  isSymbolicLink() { return this._type === 'symlink'; }
+  isFile() {
+    return this._type === 'file';
+  }
+  isDirectory() {
+    return this._type === 'directory';
+  }
+  isSymbolicLink() {
+    return this._type === 'symlink';
+  }
 }
 
 // Internal initialization and helpers
@@ -114,7 +131,15 @@ async function ensureInit() {
   const root = await db.get('/');
   if (!root) {
     const now = Date.now();
-    await db.put({ path: '/', name: '', type: 'directory', size: 0, createdAt: now, modifiedAt: now, parentPath: '' });
+    await db.put({
+      path: '/',
+      name: '',
+      type: 'directory',
+      size: 0,
+      createdAt: now,
+      modifiedAt: now,
+      parentPath: '',
+    });
   }
   _initialized = true;
 }
@@ -141,11 +166,21 @@ function baseOf(path: string): string {
 type WatchListener = (eventType: 'rename' | 'change', filename: string) => void;
 const watchers = new Map<string, Set<WatchListener>>();
 const fileWatchers = new Map<string, Set<(curr: Stats, prev: Stats) => void>>();
-function emitWatch(path: string, type: 'rename' | 'change', prev?: FileEntry | null, next?: FileEntry | null) {
+function emitWatch(
+  path: string,
+  type: 'rename' | 'change',
+  prev?: FileEntry | null,
+  next?: FileEntry | null
+) {
   const set = watchers.get(path);
   if (set) {
     for (const cb of Array.from(set)) {
-      try { cb(type, baseOf(path)); } catch {}
+      try {
+        cb(type, baseOf(path));
+      } catch (e) {
+        // 忽略监听器内部异常，避免打断通知循环
+        continue;
+      }
     }
   }
   const wf = fileWatchers.get(path);
@@ -153,7 +188,12 @@ function emitWatch(path: string, type: 'rename' | 'change', prev?: FileEntry | n
     const currStats = new Stats(next);
     const prevStats = new Stats(prev);
     for (const cb of Array.from(wf)) {
-      try { cb(currStats, prevStats); } catch {}
+      try {
+        cb(currStats, prevStats);
+      } catch (e) {
+        // 忽略监听器内部异常，继续通知其他回调
+        continue;
+      }
     }
   }
 }
@@ -170,7 +210,10 @@ async function pathExists(path: string): Promise<FileEntry | undefined> {
 
 // Resolve symlink chains (max depth to avoid cycles). If allowMissingTarget=true,
 // we don't require the final target to exist, we just return the resolved path string.
-async function resolveSymlink(path: string, allowMissingTarget = false): Promise<{ path: string; entry?: FileEntry }> {
+async function resolveSymlink(
+  path: string,
+  allowMissingTarget = false
+): Promise<{ path: string; entry?: FileEntry }> {
   await ensureInit();
   let p = norm(path);
   const seen = new Set<string>();
@@ -187,7 +230,8 @@ async function resolveSymlink(path: string, allowMissingTarget = false): Promise
       const target = (e as any).linkTarget as string;
       if (!target) throw new Error(`EINVAL: invalid symlink '${p}'`);
       const np = norm(target);
-      if (seen.has(np)) throw new Error(`ELOOP: too many symbolic links, '${path}'`);
+      if (seen.has(np))
+        throw new Error(`ELOOP: too many symbolic links, '${path}'`);
       seen.add(np);
       p = np;
       continue;
@@ -204,7 +248,10 @@ function outByEncoding(buf: Uint8Array, encoding?: string): any {
 }
 
 // Core operations powered by IndexedDB
-async function writeFileInternal(path: string, data: Uint8Array): Promise<void> {
+async function writeFileInternal(
+  path: string,
+  data: Uint8Array
+): Promise<void> {
   await ensureInit();
   // follow symlink for writing; create file at final target if missing
   const resolved = await resolveSymlink(path, true);
@@ -214,8 +261,10 @@ async function writeFileInternal(path: string, data: Uint8Array): Promise<void> 
   const parent = parentOf(path);
   if (parent) {
     const p = await db.get(parent);
-    if (!p) throw new Error(`ENOENT: no such file or directory, open '${parent}'`);
-    if (p.type !== 'directory') throw new Error(`ENOTDIR: not a directory, mkdir '${parent}'`);
+    if (!p)
+      throw new Error(`ENOENT: no such file or directory, open '${parent}'`);
+    if (p.type !== 'directory')
+      throw new Error(`ENOTDIR: not a directory, mkdir '${parent}'`);
   }
   const prev = (await db.get(path)) || null;
   const entry: FileEntry = {
@@ -255,8 +304,10 @@ async function writeFileInternal(path: string, data: Uint8Array): Promise<void> 
 async function readFileInternal(path: string): Promise<Uint8Array> {
   await ensureInit();
   const { entry } = await resolveSymlink(path);
-  if (!entry) throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-  if (entry.type !== 'file') throw new Error(`EISDIR: illegal operation on a directory, read`);
+  if (!entry)
+    throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+  if (entry.type !== 'file')
+    throw new Error(`EISDIR: illegal operation on a directory, read`);
   const buf = entry.content ? new Uint8Array(entry.content) : new Uint8Array();
   return buf;
 }
@@ -281,12 +332,24 @@ async function mkdirInternal(path: string, recursive?: boolean): Promise<void> {
     }
   }
   const now = Date.now();
-  const dir: FileEntry = { path, name: baseOf(path), type: 'directory', size: 0, createdAt: now, modifiedAt: now, parentPath: parent };
+  const dir: FileEntry = {
+    path,
+    name: baseOf(path),
+    type: 'directory',
+    size: 0,
+    createdAt: now,
+    modifiedAt: now,
+    parentPath: parent,
+  };
   await db.put(dir);
   emitWatch(path, 'rename', null, dir);
 }
 
-async function removeInternal(path: string, recursive?: boolean, force?: boolean): Promise<void> {
+async function removeInternal(
+  path: string,
+  recursive?: boolean,
+  force?: boolean
+): Promise<void> {
   await ensureInit();
   path = norm(path);
   if (path === '/') throw new Error('EBUSY: cannot remove root');
@@ -297,7 +360,8 @@ async function removeInternal(path: string, recursive?: boolean, force?: boolean
   }
   if (entry.type === 'directory') {
     const children = await db.getByParentPath(path);
-    if (children.length && !recursive) throw new Error(`ENOTEMPTY: directory not empty, rmdir '${path}'`);
+    if (children.length && !recursive)
+      throw new Error(`ENOTEMPTY: directory not empty, rmdir '${path}'`);
     for (const c of children) await removeInternal(c.path, true, force);
   }
   await db.delete(path);
@@ -306,20 +370,34 @@ async function removeInternal(path: string, recursive?: boolean, force?: boolean
 
 async function renameInternal(oldPath: string, newPath: string): Promise<void> {
   await ensureInit();
-  oldPath = norm(oldPath); newPath = norm(newPath);
+  oldPath = norm(oldPath);
+  newPath = norm(newPath);
   if (oldPath === '/') throw new Error('EXDEV: cannot move root');
   const entry = await db.get(oldPath);
-  if (!entry) throw new Error(`ENOENT: no such file or directory, rename '${oldPath}' -> '${newPath}'`);
+  if (!entry)
+    throw new Error(
+      `ENOENT: no such file or directory, rename '${oldPath}' -> '${newPath}'`
+    );
   // ensure dest parent
   const destParent = parentOf(newPath);
   if (destParent) {
     const p = await db.get(destParent);
-    if (!p) throw new Error(`ENOENT: no such file or directory, rename '${destParent}'`);
-    if (p.type !== 'directory') throw new Error(`ENOTDIR: not a directory, rename '${destParent}'`);
+    if (!p)
+      throw new Error(
+        `ENOENT: no such file or directory, rename '${destParent}'`
+      );
+    if (p.type !== 'directory')
+      throw new Error(`ENOTDIR: not a directory, rename '${destParent}'`);
   }
   // move
   const now = Date.now();
-  const moved: FileEntry = { ...entry, path: newPath, name: baseOf(newPath), modifiedAt: now, parentPath: destParent };
+  const moved: FileEntry = {
+    ...entry,
+    path: newPath,
+    name: baseOf(newPath),
+    modifiedAt: now,
+    parentPath: destParent,
+  };
   await db.put(moved);
   await db.delete(oldPath);
   // move children if directory
@@ -334,15 +412,27 @@ async function renameInternal(oldPath: string, newPath: string): Promise<void> {
 }
 
 // Public fs API (subset + placeholders)
-type EncOpt = { encoding?: BufferEncoding | null; flag?: string } | BufferEncoding | null;
-function parseEncOpt(options?: EncOpt): { encoding?: BufferEncoding | null; flag?: string } {
+type EncOpt =
+  | { encoding?: BufferEncoding | null; flag?: string }
+  | BufferEncoding
+  | null;
+function parseEncOpt(options?: EncOpt): {
+  encoding?: BufferEncoding | null;
+  flag?: string;
+} {
   if (!options) return {};
   if (typeof options === 'string') return { encoding: options } as any;
   return options as any;
 }
 
 // promises implementation
-async function fdRead(fdNum: number, buffer: Uint8Array, offset: number, length: number, position: number | null) {
+async function fdRead(
+  fdNum: number,
+  buffer: Uint8Array,
+  offset: number,
+  length: number,
+  position: number | null
+) {
   const fd = fdTable.get(fdNum);
   if (!fd) throw new Error(`EBADF: bad file descriptor, read`);
   const entry = await db.get(fd.path);
@@ -356,10 +446,19 @@ async function fdRead(fdNum: number, buffer: Uint8Array, offset: number, length:
   return { bytesRead: slice.length, buffer };
 }
 
-async function fdWrite(fdNum: number, bufOrStr: Uint8Array | string, offset?: number, length?: number, position?: number | null) {
+async function fdWrite(
+  fdNum: number,
+  bufOrStr: Uint8Array | string,
+  offset?: number,
+  length?: number,
+  position?: number | null
+) {
   const fd = fdTable.get(fdNum);
   if (!fd) throw new Error(`EBADF: bad file descriptor, write`);
-  const buf = typeof bufOrStr === 'string' ? BufferPolyfill.from(bufOrStr) : new BufferPolyfill(bufOrStr as any);
+  const buf =
+    typeof bufOrStr === 'string'
+      ? BufferPolyfill.from(bufOrStr)
+      : new BufferPolyfill(bufOrStr as any);
   let data = await readFileInternal(fd.path).catch(() => new Uint8Array());
   const start = position ?? fd.position;
   const needed = start + (length ?? buf.length);
@@ -368,7 +467,10 @@ async function fdWrite(fdNum: number, bufOrStr: Uint8Array | string, offset?: nu
     expanded.set(data, 0);
     data = expanded;
   }
-  const toWrite = (length != null && offset != null) ? buf.subarray(offset, offset + length) : buf;
+  const toWrite =
+    length != null && offset != null
+      ? buf.subarray(offset, offset + length)
+      : buf;
   data.set(toWrite, start);
   await writeFileInternal(fd.path, data);
   if (position == null) fd.position = start + toWrite.length;
@@ -389,9 +491,24 @@ const promises = {
     return outByEncoding(buf, encoding || undefined);
   },
 
-  async writeFile(file: string | number, data: any, options?: { encoding?: BufferEncoding | null; mode?: number | string; flag?: string } | BufferEncoding | null): Promise<void> {
-    const enc = typeof options === 'string' ? options : options?.encoding || undefined;
-    const buf = BufferPolyfill.isBuffer(data) || data instanceof Uint8Array ? new BufferPolyfill(data as any) : BufferPolyfill.fromString(String(data), enc || 'utf8');
+  async writeFile(
+    file: string | number,
+    data: any,
+    options?:
+      | {
+          encoding?: BufferEncoding | null;
+          mode?: number | string;
+          flag?: string;
+        }
+      | BufferEncoding
+      | null
+  ): Promise<void> {
+    const enc =
+      typeof options === 'string' ? options : options?.encoding || undefined;
+    const buf =
+      BufferPolyfill.isBuffer(data) || data instanceof Uint8Array
+        ? new BufferPolyfill(data as any)
+        : BufferPolyfill.fromString(String(data), enc || 'utf8');
     if (typeof file === 'number') {
       const fd = fdTable.get(file);
       if (!fd) throw new Error(`EBADF: bad file descriptor, write`);
@@ -401,74 +518,132 @@ const promises = {
     await writeFileInternal(file, buf);
   },
 
-  async appendFile(file: string | number, data: any, options?: BufferEncoding | { encoding?: BufferEncoding | null; mode?: number | string; flag?: string } | null): Promise<void> {
-    const enc = typeof options === 'string' ? options : options?.encoding || undefined;
-    const add = BufferPolyfill.isBuffer(data) || data instanceof Uint8Array ? new BufferPolyfill(data as any) : BufferPolyfill.fromString(String(data), enc || 'utf8');
-    const targetPath = typeof file === 'number' ? (fdTable.get(file)?.path ?? (() => { throw new Error('EBADF'); })()) : file;
+  async appendFile(
+    file: string | number,
+    data: any,
+    options?:
+      | BufferEncoding
+      | {
+          encoding?: BufferEncoding | null;
+          mode?: number | string;
+          flag?: string;
+        }
+      | null
+  ): Promise<void> {
+    const enc =
+      typeof options === 'string' ? options : options?.encoding || undefined;
+    const add =
+      BufferPolyfill.isBuffer(data) || data instanceof Uint8Array
+        ? new BufferPolyfill(data as any)
+        : BufferPolyfill.fromString(String(data), enc || 'utf8');
+    const targetPath =
+      typeof file === 'number'
+        ? (fdTable.get(file)?.path ??
+          (() => {
+            throw new Error('EBADF');
+          })())
+        : file;
     const existed = await pathExists(targetPath);
-    const base = existed ? await readFileInternal(targetPath) : new Uint8Array();
+    const base = existed
+      ? await readFileInternal(targetPath)
+      : new Uint8Array();
     const merged = BufferPolyfill.concat([base, add]);
     await writeFileInternal(targetPath as string, merged);
   },
 
-  async rename(oldPath: string, newPath: string): Promise<void> { await renameInternal(oldPath, newPath); },
+  async rename(oldPath: string, newPath: string): Promise<void> {
+    await renameInternal(oldPath, newPath);
+  },
   async copyFile(src: string, dest: string): Promise<void> {
     const data = await readFileInternal(src);
     await writeFileInternal(dest, data);
   },
-  async mkdir(path: string, options?: number | string | { recursive?: boolean; mode?: number | string }): Promise<void> {
+  async mkdir(
+    path: string,
+    options?: number | string | { recursive?: boolean; mode?: number | string }
+  ): Promise<void> {
     const recursive = typeof options === 'object' ? !!options.recursive : false;
     await mkdirInternal(path, recursive);
   },
-  async readdir(path: string, options?: { withFileTypes?: boolean; encoding?: BufferEncoding } | BufferEncoding): Promise<any> {
+  async readdir(
+    path: string,
+    options?:
+      | { withFileTypes?: boolean; encoding?: BufferEncoding }
+      | BufferEncoding
+  ): Promise<any> {
     await ensureInit();
     path = norm(path);
-    const withFileTypes = typeof options === 'object' ? !!options.withFileTypes : false;
+    const withFileTypes =
+      typeof options === 'object' ? !!options.withFileTypes : false;
     const dir = await db.get(path);
-    if (!dir) throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
-    if (dir.type !== 'directory') throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
+    if (!dir)
+      throw new Error(`ENOENT: no such file or directory, scandir '${path}'`);
+    if (dir.type !== 'directory')
+      throw new Error(`ENOTDIR: not a directory, scandir '${path}'`);
     const list = await db.getByParentPath(path);
     if (withFileTypes) {
-      return list.map(e => new Dirent(e.name, (e as any).type === 'symlink' ? 'symlink' : e.type));
+      return list.map(
+        (e) =>
+          new Dirent(e.name, (e as any).type === 'symlink' ? 'symlink' : e.type)
+      );
     }
-    return list.map(e => e.name);
+    return list.map((e) => e.name);
   },
-  async rm(path: string, options?: { recursive?: boolean; force?: boolean }): Promise<void> { await removeInternal(path, options?.recursive, options?.force); },
-  async unlink(path: string): Promise<void> { await removeInternal(path, false, false); },
-  async rmdir(path: string, options?: { recursive?: boolean }): Promise<void> { await removeInternal(path, options?.recursive, false); },
+  async rm(
+    path: string,
+    options?: { recursive?: boolean; force?: boolean }
+  ): Promise<void> {
+    await removeInternal(path, options?.recursive, options?.force);
+  },
+  async unlink(path: string): Promise<void> {
+    await removeInternal(path, false, false);
+  },
+  async rmdir(path: string, options?: { recursive?: boolean }): Promise<void> {
+    await removeInternal(path, options?.recursive, false);
+  },
   async stat(path: string): Promise<Stats> {
     await ensureInit();
     const r = await resolveSymlink(path);
     const e = r.entry;
-    if (!e) throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
+    if (!e)
+      throw new Error(`ENOENT: no such file or directory, stat '${path}'`);
     return new Stats(e as any);
   },
   async lstat(path: string): Promise<Stats> {
     await ensureInit();
     const e = await db.get(norm(path));
-    if (!e) throw new Error(`ENOENT: no such file or directory, lstat '${path}'`);
+    if (!e)
+      throw new Error(`ENOENT: no such file or directory, lstat '${path}'`);
     return new Stats(e as any);
   },
   async readlink(path: string): Promise<string> {
     await ensureInit();
     const e = await db.get(norm(path));
-    if (!e) throw new Error(`ENOENT: no such file or directory, readlink '${path}'`);
-    if (e.type !== 'symlink') throw new Error(`EINVAL: invalid argument, readlink '${path}'`);
+    if (!e)
+      throw new Error(`ENOENT: no such file or directory, readlink '${path}'`);
+    if (e.type !== 'symlink')
+      throw new Error(`EINVAL: invalid argument, readlink '${path}'`);
     return (e as any).linkTarget || '';
   },
   async symlink(target: string, path: string): Promise<void> {
     await ensureInit();
     target = norm(target);
     path = norm(path);
-    if (path === '/') throw new Error('EPERM: operation not permitted, symlink to root');
+    if (path === '/')
+      throw new Error('EPERM: operation not permitted, symlink to root');
     const parent = parentOf(path);
     if (parent) {
       const p = await db.get(parent);
-      if (!p) throw new Error(`ENOENT: no such file or directory, symlink parent '${parent}'`);
-      if (p.type !== 'directory') throw new Error(`ENOTDIR: not a directory, symlink parent '${parent}'`);
+      if (!p)
+        throw new Error(
+          `ENOENT: no such file or directory, symlink parent '${parent}'`
+        );
+      if (p.type !== 'directory')
+        throw new Error(`ENOTDIR: not a directory, symlink parent '${parent}'`);
     }
     const exist = await db.get(path);
-    if (exist) throw new Error(`EEXIST: file already exists, symlink '${path}'`);
+    if (exist)
+      throw new Error(`EEXIST: file already exists, symlink '${path}'`);
     const now = Date.now();
     const entry: FileEntry = {
       path,
@@ -491,16 +666,27 @@ const promises = {
     newPath = norm(newPath);
     const src = await resolveSymlink(existingPath); // follow symlink for hard link target
     const e = src.entry;
-    if (!e) throw new Error(`ENOENT: no such file or directory, link '${existingPath}'`);
-    if (e.type !== 'file') throw new Error(`EPERM: hard link target must be a file, got '${existingPath}'`);
+    if (!e)
+      throw new Error(
+        `ENOENT: no such file or directory, link '${existingPath}'`
+      );
+    if (e.type !== 'file')
+      throw new Error(
+        `EPERM: hard link target must be a file, got '${existingPath}'`
+      );
     const parent = parentOf(newPath);
     if (parent) {
       const p = await db.get(parent);
-      if (!p) throw new Error(`ENOENT: no such file or directory, link parent '${parent}'`);
-      if (p.type !== 'directory') throw new Error(`ENOTDIR: not a directory, link parent '${parent}'`);
+      if (!p)
+        throw new Error(
+          `ENOENT: no such file or directory, link parent '${parent}'`
+        );
+      if (p.type !== 'directory')
+        throw new Error(`ENOTDIR: not a directory, link parent '${parent}'`);
     }
     const exist = await db.get(newPath);
-    if (exist) throw new Error(`EEXIST: file already exists, link '${newPath}'`);
+    if (exist)
+      throw new Error(`EEXIST: file already exists, link '${newPath}'`);
     // ensure src has a hardLinkKey
     const key = e.hardLinkKey || e.path; // use original path string as group key
     if (!e.hardLinkKey) {
@@ -523,8 +709,13 @@ const promises = {
     await db.put(newEntry);
     emitWatch(newPath, 'rename', null as any, newEntry);
   },
-  async exists(path: string): Promise<boolean> { return !!(await pathExists(path)); },
-  async access(path: string, _mode?: number): Promise<void> { if (!(await pathExists(path))) throw new Error(`ENOENT: no such file or directory, access '${path}'`); },
+  async exists(path: string): Promise<boolean> {
+    return !!(await pathExists(path));
+  },
+  async access(path: string, _mode?: number): Promise<void> {
+    if (!(await pathExists(path)))
+      throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+  },
   async nlink(path: string): Promise<number> {
     await ensureInit();
     const r = await resolveSymlink(path);
@@ -535,7 +726,29 @@ const promises = {
     const list = await db.getByHardLinkKey(e.hardLinkKey);
     return list.filter((x) => x.type === 'file').length;
   },
-  async open(path: string, flags: string, _mode?: number): Promise<{ fd: number; close: () => Promise<void>; read: (buffer: Uint8Array, offset: number, length: number, position: number | null) => Promise<{ bytesRead: number; buffer: Uint8Array }>; write: (buffer: Uint8Array | string, offset?: number, length?: number, position?: number | null) => Promise<{ bytesWritten: number; buffer: Uint8Array | BufferPolyfill | string }>; }> {
+  async open(
+    path: string,
+    flags: string,
+    _mode?: number
+  ): Promise<{
+    fd: number;
+    close: () => Promise<void>;
+    read: (
+      buffer: Uint8Array,
+      offset: number,
+      length: number,
+      position: number | null
+    ) => Promise<{ bytesRead: number; buffer: Uint8Array }>;
+    write: (
+      buffer: Uint8Array | string,
+      offset?: number,
+      length?: number,
+      position?: number | null
+    ) => Promise<{
+      bytesWritten: number;
+      buffer: Uint8Array | BufferPolyfill | string;
+    }>;
+  }> {
     await ensureInit();
     // resolve for opening
     const r = await resolveSymlink(path, true);
@@ -552,14 +765,40 @@ const promises = {
     fdTable.set(fd, { path, position: 0, flags });
     return {
       fd,
-      close: async () => { fdTable.delete(fd); },
-      read: async (buffer, offset, length, position) => fdRead(fd, buffer, offset, length, position),
-      write: async (bufOrStr, offset?: number, length?: number, position?: number | null) => fdWrite(fd, bufOrStr as any, offset, length, position),
+      close: async () => {
+        fdTable.delete(fd);
+      },
+      read: async (buffer, offset, length, position) =>
+        fdRead(fd, buffer, offset, length, position),
+      write: async (
+        bufOrStr,
+        offset?: number,
+        length?: number,
+        position?: number | null
+      ) => fdWrite(fd, bufOrStr as any, offset, length, position),
     };
   },
-  async read(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null) { return fdRead(fd, buffer, offset, length, position); },
-  async write(fd: number, buffer: Uint8Array | string, offset?: number, length?: number, position?: number | null) { return fdWrite(fd, buffer as any, offset, length, position); },
-  async close(fd: number) { fdTable.delete(fd); },
+  async read(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null
+  ) {
+    return fdRead(fd, buffer, offset, length, position);
+  },
+  async write(
+    fd: number,
+    buffer: Uint8Array | string,
+    offset?: number,
+    length?: number,
+    position?: number | null
+  ) {
+    return fdWrite(fd, buffer as any, offset, length, position);
+  },
+  async close(fd: number) {
+    fdTable.delete(fd);
+  },
 
   /**
    * Request persistent storage for this origin.
@@ -567,7 +806,8 @@ const promises = {
    */
   async requestPersistentStorage(): Promise<boolean> {
     const ns: any = (globalThis as any).navigator?.storage;
-    if (!ns) throw new Error('StorageManager is not available in this environment');
+    if (!ns)
+      throw new Error('StorageManager is not available in this environment');
     if (typeof ns.persisted === 'function') {
       try {
         const already = await ns.persisted();
@@ -589,13 +829,24 @@ const promises = {
    * Signature compatible with Node: diskUsage(pathOrOptions?, options?)
    * Returns { total, free, available } (numbers or bigints based on options.bigint).
    */
-  async diskUsage(pathOrOptions?: string | { bigint?: boolean }, options?: { bigint?: boolean }): Promise<{ total: number; free: number; available: number } | { total: bigint; free: bigint; available: bigint }> {
-    const opts = (typeof pathOrOptions === 'object' && pathOrOptions && typeof (pathOrOptions as any).bigint !== 'undefined')
-      ? (pathOrOptions as { bigint?: boolean })
-      : (options || {});
+  async diskUsage(
+    pathOrOptions?: string | { bigint?: boolean },
+    options?: { bigint?: boolean }
+  ): Promise<
+    | { total: number; free: number; available: number }
+    | { total: bigint; free: bigint; available: bigint }
+  > {
+    const opts =
+      typeof pathOrOptions === 'object' &&
+      pathOrOptions &&
+      typeof (pathOrOptions as any).bigint !== 'undefined'
+        ? (pathOrOptions as { bigint?: boolean })
+        : options || {};
     const sm: any = (globalThis as any).navigator?.storage;
     if (!sm || typeof sm.estimate !== 'function') {
-      const zero = opts?.bigint ? { total: 0n, free: 0n, available: 0n } : { total: 0, free: 0, available: 0 };
+      const zero = opts?.bigint
+        ? { total: 0n, free: 0n, available: 0n }
+        : { total: 0, free: 0, available: 0 };
       return zero as any;
     }
     const est = await sm.estimate();
@@ -605,19 +856,29 @@ const promises = {
     const available = Math.max(0, total - usage);
     const free = available; // best-effort approximation
     if (opts?.bigint) {
-      return { total: BigInt(Math.floor(total)), free: BigInt(Math.floor(free)), available: BigInt(Math.floor(available)) } as any;
+      return {
+        total: BigInt(Math.floor(total)),
+        free: BigInt(Math.floor(free)),
+        available: BigInt(Math.floor(available)),
+      } as any;
     }
     return { total, free, available } as any;
   },
 };
 
 // Callback wrappers
-function cbWrap(fn: (...args: any[]) => Promise<any>) {
-  return (...args: any[]) => {
-    const cb = typeof args[args.length - 1] === 'function' ? args.pop() : null;
-    const p = fn(...args);
-    if (cb) {
-      p.then((res) => cb(null, res)).catch((err) => cb(err));
+function cbWrap<TArgs extends unknown[], TResult>(
+  fn: (...args: TArgs) => Promise<TResult>
+) {
+  return (...args: [...TArgs, ((err: unknown, result?: TResult) => void)?]) => {
+    const last = args[args.length - 1] as
+      | ((err: unknown, result?: TResult) => void)
+      | undefined;
+    const hasCb = typeof last === 'function';
+    const pureArgs = (hasCb ? args.slice(0, -1) : args) as TArgs;
+    const p = fn(...pureArgs);
+    if (hasCb && last) {
+      p.then((res) => last(null, res)).catch((err) => last(err));
       return;
     }
     return p; // also support promise usage
@@ -625,8 +886,19 @@ function cbWrap(fn: (...args: any[]) => Promise<any>) {
 }
 
 // Stream minimal implementations (best-effort)
+type ReadStreamEvents = {
+  data: (chunk: BufferPolyfill) => void;
+  end: () => void;
+  error: (err: unknown) => void;
+  close: () => void;
+};
 function createReadStream(path: string, opts?: { highWaterMark?: number }) {
-  const listeners: Record<string, Function[]> = { data: [], end: [], error: [], close: [] };
+  const listeners: { [K in keyof ReadStreamEvents]: ReadStreamEvents[K][] } = {
+    data: [],
+    end: [],
+    error: [],
+    close: [],
+  };
   let paused = false;
   const high = opts?.highWaterMark ?? 64 * 1024;
   (async () => {
@@ -644,28 +916,71 @@ function createReadStream(path: string, opts?: { highWaterMark?: number }) {
     }
   })();
   return {
-    on(ev: 'data' | 'end' | 'error' | 'close', h: Function) { (listeners[ev] ||= []).push(h); return this; },
-    pause() { paused = true; return this; },
-    resume() { paused = false; return this; },
-    close() { listeners.close.forEach((h) => h()); },
-    pipe(dest: any) { this.on('data', (c: any) => dest.write(c)); this.on('end', () => dest.end && dest.end()); return dest; },
+    on(
+      ev: keyof ReadStreamEvents,
+      h: ReadStreamEvents[keyof ReadStreamEvents]
+    ) {
+      (listeners[ev] as any[]).push(h as any);
+      return this;
+    },
+    pause() {
+      paused = true;
+      return this;
+    },
+    resume() {
+      paused = false;
+      return this;
+    },
+    close() {
+      listeners.close.forEach((h) => h());
+    },
+    pipe(dest: {
+      write: (chunk: Uint8Array | BufferPolyfill | string) => unknown;
+      end?: () => unknown;
+    }) {
+      this.on('data', (c: BufferPolyfill) => dest.write(c));
+      this.on('end', () => dest.end && dest.end());
+      return dest;
+    },
   };
 }
 
+type WriteStreamEvents = {
+  finish: () => void;
+  error: (err: unknown) => void;
+};
 function createWriteStream(path: string) {
-  const listeners: Record<string, Function[]> = { finish: [], error: [] };
+  const listeners: { [K in keyof WriteStreamEvents]: WriteStreamEvents[K][] } =
+    {
+      finish: [],
+      error: [],
+    };
   let buffer = new Uint8Array();
   return {
-    async write(chunk: any) {
-      const b = BufferPolyfill.isBuffer(chunk) || chunk instanceof Uint8Array ? new Uint8Array(chunk as any) : BufferPolyfill.from(String(chunk));
+    async write(chunk: Uint8Array | BufferPolyfill | string) {
+      const b =
+        BufferPolyfill.isBuffer(chunk as any) || chunk instanceof Uint8Array
+          ? new Uint8Array(chunk as any)
+          : BufferPolyfill.from(String(chunk));
       buffer = BufferPolyfill.concat([buffer, b]);
       return true;
     },
-    async end(chunk?: any) {
+    async end(chunk?: Uint8Array | BufferPolyfill | string) {
       if (chunk) await this.write(chunk);
-      try { await writeFileInternal(path, buffer); listeners.finish.forEach((h) => h()); } catch (e) { listeners.error.forEach((h) => h(e)); }
+      try {
+        await writeFileInternal(path, buffer);
+        listeners.finish.forEach((h) => h());
+      } catch (e) {
+        listeners.error.forEach((h) => h(e));
+      }
     },
-    on(ev: 'finish' | 'error', h: Function) { (listeners[ev] ||= []).push(h); return this; },
+    on(
+      ev: keyof WriteStreamEvents,
+      h: WriteStreamEvents[keyof WriteStreamEvents]
+    ) {
+      (listeners[ev] as any[]).push(h as any);
+      return this;
+    },
   };
 }
 
@@ -687,22 +1002,35 @@ function watch(filename: string, listener?: WatchListener) {
   };
 }
 
-function watchFile(filename: string, listener: (curr: Stats, prev: Stats) => void) {
+function watchFile(
+  filename: string,
+  listener: (curr: Stats, prev: Stats) => void
+) {
   filename = norm(filename);
   const set = fileWatchers.get(filename) || new Set();
   set.add(listener);
   fileWatchers.set(filename, set);
 }
-function unwatchFile(filename: string, listener?: (curr: Stats, prev: Stats) => void) {
+function unwatchFile(
+  filename: string,
+  listener?: (curr: Stats, prev: Stats) => void
+) {
   filename = norm(filename);
-  if (!listener) { fileWatchers.delete(filename); return; }
+  if (!listener) {
+    fileWatchers.delete(filename);
+    return;
+  }
   const set = fileWatchers.get(filename);
   if (set) set.delete(listener);
 }
 
 // Placeholder unsupported methods
 function notSupported(name: string) {
-  return async (..._args: any[]) => { throw new Error(`${name} is not supported in browser IndexedDB environment`); };
+  return async (..._args: any[]) => {
+    throw new Error(
+      `${name} is not supported in browser IndexedDB environment`
+    );
+  };
 }
 
 // Build fs namespace-like object
@@ -726,30 +1054,69 @@ export const fs = {
   lstat: cbWrap(promises.lstat),
   readlink: cbWrap(promises.readlink),
   readlinkSync: cbWrap(promises.readlink),
-  open(path: string, flags: string, mode: any, cb?: (err: any, fd?: number) => void) {
-    if (typeof mode === 'function') { cb = mode; mode = undefined as any; }
-    const p = promises.open(path, flags, mode as any).then(h => h.fd);
-    if (cb) { p.then((fd) => (cb as any)(null, fd)).catch((e) => (cb as any)(e)); return; }
+  open(
+    path: string,
+    flags: string,
+    mode: any,
+    cb?: (err: any, fd?: number) => void
+  ) {
+    if (typeof mode === 'function') {
+      cb = mode;
+      mode = undefined as any;
+    }
+    const p = promises.open(path, flags, mode as any).then((h) => h.fd);
+    if (cb) {
+      p.then((fd) => (cb as any)(null, fd)).catch((e) => (cb as any)(e));
+      return;
+    }
     return p;
   },
   close(fd: number, cb?: (err?: any) => void) {
     const p = promises.close(fd);
-    if (cb) { p.then(() => cb()).catch(cb); return; }
+    if (cb) {
+      p.then(() => cb()).catch(cb);
+      return;
+    }
     return p;
   },
-  read(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null, cb?: (err: any, bytesRead?: number, buffer?: Uint8Array) => void) {
-    const p = promises.read(fd, buffer, offset, length, position).then(r => r);
-    if (cb) { p.then(r => cb(null, r.bytesRead, r.buffer)).catch(cb); return; }
+  read(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null,
+    cb?: (err: any, bytesRead?: number, buffer?: Uint8Array) => void
+  ) {
+    const p = promises
+      .read(fd, buffer, offset, length, position)
+      .then((r) => r);
+    if (cb) {
+      p.then((r) => cb(null, r.bytesRead, r.buffer)).catch(cb);
+      return;
+    }
     return p;
   },
-  write(fd: number, buffer: Uint8Array | string, offset?: number, length?: number, position?: number | null, cb?: (err: any, bytesWritten?: number, buffer?: any) => void) {
+  write(
+    fd: number,
+    buffer: Uint8Array | string,
+    offset?: number,
+    length?: number,
+    position?: number | null,
+    cb?: (err: any, bytesWritten?: number, buffer?: any) => void
+  ) {
     const p = promises.write(fd, buffer as any, offset, length, position);
-    if (cb) { p.then(r => cb(null, r.bytesWritten, r.buffer)).catch(cb); return; }
+    if (cb) {
+      p.then((r) => cb(null, r.bytesWritten, r.buffer)).catch(cb);
+      return;
+    }
     return p;
   },
   exists(path: string, cb?: (exists: boolean) => void) {
     const p = promises.exists(path);
-    if (cb) { p.then((v) => cb(v)); return; }
+    if (cb) {
+      p.then((v) => cb(v));
+      return;
+    }
     return p;
   },
   access: cbWrap(promises.access),
@@ -771,10 +1138,33 @@ export const fs = {
   rmdirSync: cbWrap(promises.rmdir),
   statSync: cbWrap(promises.stat),
   lstatSync: cbWrap(promises.lstat),
-  openSync: cbWrap(async (path: string, flags: string, mode?: number) => (await promises.open(path, flags, mode)).fd),
-  closeSync: cbWrap(async (fd: number) => { fdTable.delete(fd); }),
-  readSync: cbWrap(async (fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null) => (await promises.read(fd, buffer, offset, length, position)).bytesRead),
-  writeSync: cbWrap(async (fd: number, buffer: Uint8Array | string, offset?: number, length?: number, position?: number | null) => (await promises.write(fd, buffer as any, offset, length, position)).bytesWritten),
+  openSync: cbWrap(
+    async (path: string, flags: string, mode?: number) =>
+      (await promises.open(path, flags, mode)).fd
+  ),
+  closeSync: cbWrap(async (fd: number) => {
+    fdTable.delete(fd);
+  }),
+  readSync: cbWrap(
+    async (
+      fd: number,
+      buffer: Uint8Array,
+      offset: number,
+      length: number,
+      position: number | null
+    ) => (await promises.read(fd, buffer, offset, length, position)).bytesRead
+  ),
+  writeSync: cbWrap(
+    async (
+      fd: number,
+      buffer: Uint8Array | string,
+      offset?: number,
+      length?: number,
+      position?: number | null
+    ) =>
+      (await promises.write(fd, buffer as any, offset, length, position))
+        .bytesWritten
+  ),
 
   // streams
   createReadStream,

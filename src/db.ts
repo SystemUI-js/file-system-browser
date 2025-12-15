@@ -43,16 +43,32 @@ class Database {
           const txn = (event.target as any).transaction as IDBTransaction;
           const store = (txn as any).objectStore
             ? (txn as any).objectStore(STORE_NAME)
-            : (db as any).transaction(STORE_NAME, 'versionchange').objectStore(STORE_NAME);
+            : (db as any)
+                .transaction(STORE_NAME, 'versionchange')
+                .objectStore(STORE_NAME);
           const indexNames = (store.indexNames || []) as any;
           if (!indexNames.contains || !indexNames.contains('parentPath')) {
-            try { store.createIndex('parentPath', 'parentPath', { unique: false }); } catch {}
+            try {
+              store.createIndex('parentPath', 'parentPath', { unique: false });
+            } catch (e) {
+              void 0;
+            }
           }
           if (!indexNames.contains || !indexNames.contains('type')) {
-            try { store.createIndex('type', 'type', { unique: false }); } catch {}
+            try {
+              store.createIndex('type', 'type', { unique: false });
+            } catch (e) {
+              void 0;
+            }
           }
           if (!indexNames.contains || !indexNames.contains('hardLinkKey')) {
-            try { store.createIndex('hardLinkKey', 'hardLinkKey', { unique: false }); } catch {}
+            try {
+              store.createIndex('hardLinkKey', 'hardLinkKey', {
+                unique: false,
+              });
+            } catch (e) {
+              void 0;
+            }
           }
         }
       };

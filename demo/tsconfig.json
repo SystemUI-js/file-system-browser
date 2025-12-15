@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@system-ui-js/file-system-browser": ["../src/index.ts"]
+    }
+  },
+  "include": ["./**/*"],
+  "exclude": ["node_modules"]
+}
