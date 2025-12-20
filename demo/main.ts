@@ -303,8 +303,7 @@ pasteBtn.addEventListener('click', async () => {
       alert('移动成功');
       try {
         const srcDir = parentOf(clipboard.path);
-        const destDir = currentPath;
-        await sorter.onEntriesMoved(srcDir, destDir, [fileName]);
+        await sorter.onEntriesMoved(srcDir, currentPath, [fileName]);
       } catch (e) {
         void 0;
       }
@@ -517,8 +516,7 @@ window.handleFileClick = async (
       const st = await fs.promises.stat(path);
       if (st.isDirectory()) {
         // 解析目标路径用于导航
-        const target = await fs.promises.readlink(path).catch(() => path);
-        currentPath = target;
+        currentPath = await fs.promises.readlink(path).catch(() => path);
         await refreshFileList();
       }
       return;
@@ -695,7 +693,7 @@ window.cutFile = (path: string) => {
   updateClipboardUI();
 };
 
-// Delete file
+// Delete a file
 window.deleteFile = async (path: string) => {
   if (!confirm(`确定要删除 ${path} 吗？`)) return;
 
@@ -757,15 +755,14 @@ modal.addEventListener('click', (e) => {
   }
 });
 
-// Add back button to navigate up
+// Add a back button to navigate up
 const backButton = document.createElement('button');
 backButton.textContent = '← 返回上级';
 backButton.className = 'btn btn-secondary';
 backButton.style.marginBottom = '10px';
 backButton.addEventListener('click', async () => {
   if (currentPath === '/') return;
-  const parentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
-  currentPath = parentPath;
+  currentPath = currentPath.split('/').slice(0, -1).join('/') || '/';
   await refreshFileList();
 });
 document.querySelector('.current-path')?.before(backButton);
@@ -966,7 +963,7 @@ async function copyPath(src: string, dest: string): Promise<void> {
   }
 }
 
-// Recursively calculate size of a directory. Skips symlinks to avoid cycles.
+// Recursively calculate the size of a directory. Skips symlinks to avoid cycles.
 async function dirSizeRecursive(target: string): Promise<number> {
   try {
     const lst = await fs.promises.lstat(target);

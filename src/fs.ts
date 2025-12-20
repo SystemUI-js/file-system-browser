@@ -199,9 +199,28 @@ function emitWatch(
 }
 
 // FD table
-type FD = { path: string; position: number; flags: string };
+type FD = {
+  path: string;
+  position: number;
+  flags: string;
+  plugin?: ActivePlugin;
+};
 const fdTable = new Map<number, FD>();
 let nextFd = 3; // 0,1,2 reserved
+
+function allocateFd(
+  path: string,
+  flags: string,
+  plugin?: ActivePlugin
+): number {
+  const fd = nextFd++;
+  fdTable.set(fd, { path: norm(path), position: 0, flags, plugin });
+  return fd;
+}
+
+function releaseFd(fd: number): void {
+  fdTable.delete(fd);
+}
 
 async function pathExists(path: string): Promise<FileEntry | undefined> {
   await ensureInit();
@@ -512,7 +531,7 @@ async function readdirPromise(
   return list.map((e) => e.name);
 }
 
-const promises = {
+const corePromises = {
   async readFile(path: string | number, options?: EncOpt) {
     if (typeof path === 'number') {
       const fd = fdTable.get(path);
@@ -773,12 +792,11 @@ const promises = {
     if (!exists && flags.startsWith('r')) {
       throw new Error(`ENOENT: no such file or directory, open '${path}'`);
     }
-    const fd = nextFd++;
-    fdTable.set(fd, { path, position: 0, flags });
+    const fd = allocateFd(path, flags);
     return {
       fd,
       close: async () => {
-        fdTable.delete(fd);
+        releaseFd(fd);
       },
       read: async (buffer, offset, length, position) =>
         fdRead(fd, buffer, offset, length, position),
@@ -809,7 +827,7 @@ const promises = {
     return fdWrite(fd, buffer, offset, length, position);
   },
   async close(fd: number) {
-    fdTable.delete(fd);
+    releaseFd(fd);
   },
 
   /**
@@ -878,6 +896,361 @@ const promises = {
   },
 };
 
+type CorePromises = typeof corePromises;
+
+type UtilityHandlers = {
+  watch: typeof baseWatch;
+  watchFile: typeof baseWatchFile;
+  unwatchFile: typeof baseUnwatchFile;
+  createReadStream: typeof baseCreateReadStream;
+  createWriteStream: typeof baseCreateWriteStream;
+};
+
+type PluginHandlers = Partial<CorePromises> & Partial<UtilityHandlers>;
+
+export interface FsPluginContext {
+  baseFs: CorePromises;
+  Buffer: typeof BufferPolyfill;
+  createFd: (path: string, flags?: string) => number;
+  releaseFd: (fd: number) => void;
+  baseWatch: typeof baseWatch;
+  baseWatchFile: typeof baseWatchFile;
+  baseUnwatchFile: typeof baseUnwatchFile;
+  baseCreateReadStream: typeof baseCreateReadStream;
+  baseCreateWriteStream: typeof baseCreateWriteStream;
+}
+
+export interface FsPlugin {
+  match: RegExp;
+  handlers?: PluginHandlers;
+}
+
+export type FsPluginFactory<TOptions = unknown> = (
+  options: TOptions,
+  ctx: FsPluginContext
+) => FsPlugin;
+
+interface ActivePlugin {
+  name: string;
+  match: RegExp;
+  handlers: PluginHandlers;
+}
+
+const pluginFactories = new Map<string, FsPluginFactory<unknown>>();
+let activePlugins: ActivePlugin[] = [];
+
+export function registerPlugin<TOptions = unknown>(
+  name: string,
+  factory: FsPluginFactory<TOptions>
+): void {
+  if (!name) throw new Error('插件名不能为空');
+  pluginFactories.set(name, factory as FsPluginFactory<unknown>);
+}
+
+export function usePlugin<TOptions = unknown>(
+  name: string,
+  options: TOptions
+): ActivePlugin {
+  const factory = pluginFactories.get(name);
+  if (!factory) {
+    throw new Error(`未找到名为 ${name} 的插件，请先注册后再使用`);
+  }
+  const holder: { current?: ActivePlugin } = {};
+  const ctx: FsPluginContext = {
+    baseFs: corePromises,
+    Buffer: BufferPolyfill,
+    createFd: (path: string, flags: string = '') => {
+      if (!holder.current) throw new Error('插件尚未初始化完成');
+      return allocateFd(path, flags, holder.current);
+    },
+    releaseFd,
+    baseWatch,
+    baseWatchFile,
+    baseUnwatchFile,
+    baseCreateReadStream,
+    baseCreateWriteStream,
+  };
+  const plugin = factory(options, ctx);
+  const instance: ActivePlugin = {
+    name,
+    match: plugin.match,
+    handlers: plugin.handlers ?? {},
+  };
+  holder.current = instance;
+  activePlugins = [...activePlugins.filter((p) => p.name !== name), instance];
+  return instance;
+}
+
+export function unregisterPlugin(name: string): void {
+  activePlugins = activePlugins.filter((p) => p.name !== name);
+}
+
+function normalizeAndTest(reg: RegExp, path: string): boolean {
+  reg.lastIndex = 0;
+  return reg.test(norm(path));
+}
+
+function resolvePluginFromPaths(
+  paths: Array<string | undefined>
+): ActivePlugin | undefined {
+  const matched = paths
+    .filter((p): p is string => !!p)
+    .map((p) => activePlugins.find((ap) => normalizeAndTest(ap.match, p)))
+    .filter((p): p is ActivePlugin => !!p);
+  if (!matched.length) return undefined;
+  const first = matched[0].name;
+  const allSame = matched.every((m) => m.name === first);
+  if (!allSame) {
+    throw new Error('路径同时匹配到多个不同的插件，请检查拦截规则');
+  }
+  return matched[0];
+}
+
+function runWithPluginPromise(
+  method: 'readdir',
+  paths: Array<string | undefined>,
+  path: string,
+  options: { withFileTypes: true; encoding?: BufferEncoding } | BufferEncoding
+): Promise<Dirent[]>;
+function runWithPluginPromise(
+  method: 'readdir',
+  paths: Array<string | undefined>,
+  path: string,
+  options?:
+    | { withFileTypes?: false; encoding?: BufferEncoding }
+    | BufferEncoding
+): Promise<string[]>;
+function runWithPluginPromise<K extends keyof CorePromises>(
+  method: K,
+  paths: Array<string | undefined>,
+  ...args: Parameters<CorePromises[K]>
+): ReturnType<CorePromises[K]>;
+function runWithPluginPromise(
+  method: keyof CorePromises,
+  paths: Array<string | undefined>,
+  ...args: unknown[]
+): unknown {
+  const plugin = resolvePluginFromPaths(paths);
+  const handler = plugin?.handlers[method];
+  if (typeof handler === 'function') {
+    return (handler as (...a: unknown[]) => unknown)(...args);
+  }
+  const base = corePromises[method] as (...a: unknown[]) => unknown;
+  return base(...args);
+}
+
+type UtilityMethod = keyof UtilityHandlers;
+
+function runWithPluginUtility<K extends UtilityMethod>(
+  method: K,
+  paths: Array<string | undefined>,
+  ...args: Parameters<UtilityHandlers[K]>
+): ReturnType<UtilityHandlers[K]> {
+  const plugin = resolvePluginFromPaths(paths);
+  const handler = plugin?.handlers[method] as
+    | ((...a: Parameters<UtilityHandlers[K]>) => ReturnType<UtilityHandlers[K]>)
+    | undefined;
+  if (handler) {
+    return handler(...args);
+  }
+  const baseMap: UtilityHandlers = {
+    watch: baseWatch,
+    watchFile: baseWatchFile,
+    unwatchFile: baseUnwatchFile,
+    createReadStream: baseCreateReadStream,
+    createWriteStream: baseCreateWriteStream,
+  };
+  const base = baseMap[method] as unknown as (
+    ...a: Parameters<UtilityHandlers[K]>
+  ) => ReturnType<UtilityHandlers[K]>;
+  return base(...args);
+}
+
+type ReaddirOptionsWithTypes =
+  | { withFileTypes: true; encoding?: BufferEncoding }
+  | BufferEncoding;
+type ReaddirOptionsWithoutTypes =
+  | { withFileTypes?: false; encoding?: BufferEncoding }
+  | BufferEncoding
+  | undefined;
+
+function readdirHook(
+  path: string,
+  options: ReaddirOptionsWithTypes
+): Promise<Dirent[]>;
+function readdirHook(
+  path: string,
+  options?: ReaddirOptionsWithoutTypes
+): Promise<string[]>;
+function readdirHook(
+  path: string,
+  options?: ReaddirOptionsWithTypes | ReaddirOptionsWithoutTypes
+): Promise<Array<Dirent | string>> {
+  const optionValue = options;
+  if (
+    optionValue &&
+    typeof optionValue === 'object' &&
+    'withFileTypes' in optionValue &&
+    optionValue.withFileTypes === true
+  ) {
+    return runWithPluginPromise(
+      'readdir',
+      [path],
+      path,
+      optionValue as { withFileTypes: true; encoding?: BufferEncoding }
+    );
+  }
+  return runWithPluginPromise(
+    'readdir',
+    [path],
+    path,
+    optionValue as ReaddirOptionsWithoutTypes
+  );
+}
+
+const promises: CorePromises = {
+  readFile: (path: string | number, options?: EncOpt) => {
+    if (typeof path === 'number') {
+      const fd = fdTable.get(path);
+      return runWithPluginPromise('readFile', [fd?.path], path, options);
+    }
+    return runWithPluginPromise('readFile', [path], path, options);
+  },
+  writeFile: (
+    file: string | number,
+    data: Iterable<number>,
+    options?:
+      | {
+          encoding?: BufferEncoding | null;
+          mode?: number | string;
+          flag?: string;
+        }
+      | BufferEncoding
+      | null
+  ) =>
+    runWithPluginPromise(
+      'writeFile',
+      [typeof file === 'number' ? fdTable.get(file)?.path : file],
+      file,
+      data,
+      options
+    ),
+  appendFile: (
+    file: string | number,
+    data: Iterable<number>,
+    options?:
+      | BufferEncoding
+      | {
+          encoding?: BufferEncoding | null;
+          mode?: number | string;
+          flag?: string;
+        }
+      | null
+  ) =>
+    runWithPluginPromise(
+      'appendFile',
+      [typeof file === 'number' ? fdTable.get(file)?.path : file],
+      file,
+      data,
+      options
+    ),
+  rename: (oldPath: string, newPath: string) =>
+    runWithPluginPromise('rename', [oldPath, newPath], oldPath, newPath),
+  copyFile: (src: string, dest: string) =>
+    runWithPluginPromise('copyFile', [src, dest], src, dest),
+  mkdir: (
+    path: string,
+    options?: number | string | { recursive?: boolean; mode?: number | string }
+  ) => runWithPluginPromise('mkdir', [path], path, options),
+  readdir: (() => {
+    return readdirHook;
+  })(),
+  rm: (path: string, options?: { recursive?: boolean; force?: boolean }) =>
+    runWithPluginPromise('rm', [path], path, options),
+  unlink: (path: string) => runWithPluginPromise('unlink', [path], path),
+  rmdir: (path: string, options?: { recursive?: boolean }) =>
+    runWithPluginPromise('rmdir', [path], path, options),
+  stat: (path: string) => runWithPluginPromise('stat', [path], path),
+  lstat: (path: string) => runWithPluginPromise('lstat', [path], path),
+  readlink: (path: string) => runWithPluginPromise('readlink', [path], path),
+  symlink: (target: string, path: string) =>
+    runWithPluginPromise('symlink', [path, target], target, path),
+  link: (existingPath: string, newPath: string) =>
+    runWithPluginPromise(
+      'link',
+      [existingPath, newPath],
+      existingPath,
+      newPath
+    ),
+  exists: (path: string) => runWithPluginPromise('exists', [path], path),
+  access: (path: string, mode?: number) =>
+    runWithPluginPromise('access', [path], path, mode),
+  nlink: (path: string) => runWithPluginPromise('nlink', [path], path),
+  open: async (path: string, flags: string, mode?: number) => {
+    const plugin = resolvePluginFromPaths([path]);
+    const handler = plugin?.handlers.open as CorePromises['open'] | undefined;
+    const res = handler
+      ? await handler(path, flags, mode)
+      : await corePromises.open(path, flags, mode);
+    const existed = fdTable.get(res.fd);
+    if (plugin) {
+      if (existed) {
+        fdTable.set(res.fd, { ...existed, plugin });
+      } else {
+        allocateFd(path, flags, plugin);
+      }
+    }
+    if (!existed) {
+      fdTable.set(res.fd, {
+        path: norm(path),
+        position: 0,
+        flags,
+        plugin,
+      });
+    }
+    return res;
+  },
+  read: (
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null
+  ) =>
+    runWithPluginPromise(
+      'read',
+      [fdTable.get(fd)?.path],
+      fd,
+      buffer,
+      offset,
+      length,
+      position
+    ),
+  write: (
+    fd: number,
+    buffer: Uint8Array | string,
+    offset?: number,
+    length?: number,
+    position?: number | null
+  ) =>
+    runWithPluginPromise(
+      'write',
+      [fdTable.get(fd)?.path],
+      fd,
+      buffer,
+      offset,
+      length,
+      position
+    ),
+  close: (fd: number) =>
+    runWithPluginPromise('close', [fdTable.get(fd)?.path], fd),
+  requestPersistentStorage: () => corePromises.requestPersistentStorage(),
+  diskUsage: (
+    pathOrOptions?: string | { bigint?: boolean },
+    options?: { bigint?: boolean }
+  ) => corePromises.diskUsage(pathOrOptions, options),
+};
+
 // Callback wrappers
 function cbWrap<TArgs extends unknown[], TResult>(
   fn: (...args: TArgs) => Promise<TResult>
@@ -904,7 +1277,7 @@ type ReadStreamEvents = {
   error: (err: unknown) => void;
   close: () => void;
 };
-function createReadStream(path: string, opts?: { highWaterMark?: number }) {
+function baseCreateReadStream(path: string, opts?: { highWaterMark?: number }) {
   const listeners: { [K in keyof ReadStreamEvents]: ReadStreamEvents[K][] } = {
     data: [],
     end: [],
@@ -958,7 +1331,7 @@ type WriteStreamEvents = {
   finish: () => void;
   error: (err: unknown) => void;
 };
-function createWriteStream(path: string) {
+function baseCreateWriteStream(path: string) {
   const listeners: { [K in keyof WriteStreamEvents]: WriteStreamEvents[K][] } =
     {
       finish: [],
@@ -991,7 +1364,7 @@ function createWriteStream(path: string) {
 }
 
 // watch APIs
-function watch(filename: string, listener?: WatchListener) {
+function baseWatch(filename: string, listener?: WatchListener) {
   filename = norm(filename);
   if (listener) {
     const set = watchers.get(filename) || new Set();
@@ -1008,7 +1381,7 @@ function watch(filename: string, listener?: WatchListener) {
   };
 }
 
-function watchFile(
+function baseWatchFile(
   filename: string,
   listener: (curr: Stats, prev: Stats) => void
 ) {
@@ -1017,7 +1390,7 @@ function watchFile(
   set.add(listener);
   fileWatchers.set(filename, set);
 }
-function unwatchFile(
+function baseUnwatchFile(
   filename: string,
   listener?: (curr: Stats, prev: Stats) => void
 ) {
@@ -1028,6 +1401,32 @@ function unwatchFile(
   }
   const set = fileWatchers.get(filename);
   if (set) set.delete(listener);
+}
+
+function createReadStream(path: string, opts?: { highWaterMark?: number }) {
+  return runWithPluginUtility('createReadStream', [path], path, opts);
+}
+
+function createWriteStream(path: string) {
+  return runWithPluginUtility('createWriteStream', [path], path);
+}
+
+function watch(filename: string, listener?: WatchListener) {
+  return runWithPluginUtility('watch', [filename], filename, listener);
+}
+
+function watchFile(
+  filename: string,
+  listener: (curr: Stats, prev: Stats) => void
+) {
+  return runWithPluginUtility('watchFile', [filename], filename, listener);
+}
+
+function unwatchFile(
+  filename: string,
+  listener?: (curr: Stats, prev: Stats) => void
+) {
+  return runWithPluginUtility('unwatchFile', [filename], filename, listener);
 }
 
 // Placeholder unsupported methods
