@@ -1,0 +1,63 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - heading "📁 FileSystem Demo" [level=1] [ref=e4]
+    - paragraph [ref=e5]: NodeJs fs 风格的浏览器文件存储系统
+  - main [ref=e6]:
+    - generic [ref=e7]:
+      - heading "上传文件" [level=2] [ref=e8]
+      - generic [ref=e9]:
+        - button "Choose File" [ref=e10] [cursor=pointer]
+        - button "上传到根目录" [ref=e11] [cursor=pointer]
+        - button "创建文件夹" [ref=e12] [cursor=pointer]
+        - button "创建软链接" [ref=e13] [cursor=pointer]
+        - button "创建硬链接" [ref=e14] [cursor=pointer]
+        - button "清空所有文件" [ref=e15] [cursor=pointer]
+    - generic [ref=e16]:
+      - heading "文件列表" [level=2] [ref=e17]
+      - generic [ref=e18]:
+        - textbox "搜索文件/文件夹名称（支持子目录）" [ref=e19]
+        - generic [ref=e20]:
+          - checkbox "从根目录搜索" [ref=e21]
+          - text: 从根目录搜索
+        - button "搜索" [ref=e22] [cursor=pointer]
+        - button "清除" [ref=e23] [cursor=pointer]
+      - button "← 返回上级" [ref=e24] [cursor=pointer]
+      - generic [ref=e25]: "当前路径: /"
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e28]: 排序字段
+          - combobox "排序字段" [ref=e29] [cursor=pointer]:
+            - option "名称" [selected]
+            - option "创建时间"
+            - option "修改时间"
+            - option "大小"
+            - option "自由排序（列表）"
+        - generic [ref=e30]:
+          - generic [ref=e31]: 顺序
+          - combobox "顺序" [ref=e32] [cursor=pointer]:
+            - option "升序" [selected]
+            - option "降序"
+        - generic [ref=e33]: 提示：选择“自由排序（列表）”后，可用每行的“上移/下移”调整顺序
+      - generic [ref=e35]:
+        - text: 📭
+        - paragraph [ref=e36]: 当前目录为空
+    - generic [ref=e37]:
+      - heading "剪贴板" [level=2] [ref=e38]
+      - generic [ref=e39]: 无剪贴板内容
+      - button "粘贴到当前目录" [disabled] [ref=e40]
+    - generic [ref=e41]:
+      - heading "存储信息" [level=2] [ref=e42]
+      - generic [ref=e43]:
+        - generic [ref=e44]:
+          - text: 持久化状态：
+          - strong [ref=e45]: 未持久化
+        - button "申请持久化" [active] [ref=e46] [cursor=pointer]
+      - generic [ref=e47]:
+        - text: 空间占用：
+        - strong [ref=e48]: 3.55 KB
+        - text: /
+        - strong [ref=e49]: 2.14 GB
+```
