@@ -75,6 +75,7 @@ type FsPluginFactory<TOptions = unknown> = (
 
 ### 最小示例：虚拟云盘只读插件
 ```ts
+import * as fs from 'fs';
 import { registerPlugin, usePlugin, FsPluginContext } from '@system-ui-js/file-system-browser';
 
 type CloudOpts = { greeting?: string };
