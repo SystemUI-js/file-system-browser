@@ -41,6 +41,61 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 - 这些能力依赖于浏览器的 Storage API（`navigator.storage.persisted/persist/estimate`）。在不支持的环境中，请自行做兼容处理。
 - 返回值为近似估计，具体行为与配额政策由浏览器实现决定。
 
+## 插件系统（新）
+
+本库提供可插拔的“路径拦截”机制，便于挂载 WebDAV/各类网盘/SMB 或自定义虚拟文件。插件代码可独立于本仓库维护。
+
+### 核心 API
+- `registerPlugin(name, factory)`：注册插件工厂（仅登记，不启用）。
+- `usePlugin(name, options)`：按名称实例化并启用插件；若名称未注册会抛错；同名多次启用将覆盖旧实例。
+- `unregisterPlugin(name)`：停止并移除已启用的插件。
+
+### 插件工厂签名
+```ts
+type FsPluginFactory<TOptions = unknown> = (
+  options: TOptions,
+  ctx: FsPluginContext
+) => {
+  match: RegExp;                    // 命中后所有相关 fs 调用将路由到插件
+  handlers?: Partial<CorePromises>  // 按需覆盖，未实现的回退到内置 IndexedDB 版本
+             & Partial<UtilityHandlers>;
+};
+```
+
+`ctx` 提供：
+- `baseFs`：内置 IndexedDB 版 `fs.promises`，可复用未覆盖的能力
+- `Buffer`：`BufferPolyfill`
+- `createFd(path, flags?)` / `releaseFd(fd)`：创建/释放带插件标记的 fd（供自定义 `open` 及后续 `read/write/close` 使用）
+- `baseWatch` / `baseWatchFile` / `baseUnwatchFile`
+- `baseCreateReadStream` / `baseCreateWriteStream`
+
+可覆盖的方法包含所有 Promise 版 fs API（`readFile`、`writeFile`、`appendFile`、`rename`、`copyFile`、`mkdir`、`readdir`、`rm`、`unlink`、`rmdir`、`stat`、`lstat`、`readlink`、`symlink`、`link`、`exists`、`access`、`nlink`、`open`、`read`、`write`、`close`）以及工具方法 `watch`、`watchFile`、`unwatchFile`、`createReadStream`、`createWriteStream`。未实现的接口自动走内置实现。
+
+**注意**：若一次调用涉及的多个路径匹配到不同插件，会抛出异常以避免行为不一致；请保持拦截正则互斥。
+
+### 最小示例：虚拟云盘只读插件
+```ts
+import { registerPlugin, usePlugin, FsPluginContext } from '@system-ui-js/file-system-browser';
+
+type CloudOpts = { greeting?: string };
+
+registerPlugin<CloudOpts>('cloud', (options, ctx) => ({
+  match: /^\\/cloud(\\/|$)/,
+  handlers: {
+    async readFile(path: string) {
+      return ctx.Buffer.fromString(
+        `${options?.greeting ?? 'hello'}, reading ${path}`
+      );
+    },
+    // 未实现的 API 自动回退到 ctx.baseFs
+  },
+}));
+
+usePlugin('cloud', { greeting: 'hi' });
+
+const content = await fs.promises.readFile('/cloud/demo.txt', 'utf8');
+```
+
 ## 开发
 
 ```bash
