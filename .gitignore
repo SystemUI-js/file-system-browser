@@ -37,6 +37,7 @@ dist-demo
 # Testing
 coverage
 *.lcov
+test-results
 
 # Temporary files
 *.tmp

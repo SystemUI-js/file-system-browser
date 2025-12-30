@@ -1197,16 +1197,28 @@ const promises: CorePromises = {
       if (existed) {
         fdTable.set(res.fd, { ...existed, plugin });
       } else {
-        allocateFd(path, flags, plugin);
+        fdTable.set(res.fd, {
+          path: norm(path),
+          position: 0,
+          flags,
+          plugin,
+        });
+        // Ensure nextFd is bumped to avoid future collisions
+        if (res.fd >= nextFd) {
+          nextFd = res.fd + 1;
+        }
       }
-    }
-    if (!existed) {
+    } else if (!existed) {
       fdTable.set(res.fd, {
         path: norm(path),
         position: 0,
         flags,
         plugin,
       });
+      // Ensure nextFd is bumped to avoid future collisions
+      if (res.fd >= nextFd) {
+        nextFd = res.fd + 1;
+      }
     }
     return res;
   },
