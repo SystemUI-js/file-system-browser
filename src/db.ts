@@ -40,13 +40,14 @@ class Database {
           store.createIndex('hardLinkKey', 'hardLinkKey', { unique: false });
         } else {
           // upgrade indexes if needed
-          const txn = (event.target as any).transaction as IDBTransaction;
-          const store = (txn as any).objectStore
-            ? (txn as any).objectStore(STORE_NAME)
-            : (db as any)
+          const request = event.target as IDBOpenDBRequest;
+          const txn = request.transaction as IDBTransaction;
+          const store = txn.objectStore
+            ? txn.objectStore(STORE_NAME)
+            : db
                 .transaction(STORE_NAME, 'versionchange')
                 .objectStore(STORE_NAME);
-          const indexNames = (store.indexNames || []) as any;
+          const indexNames = store.indexNames;
           if (!indexNames.contains || !indexNames.contains('parentPath')) {
             try {
               store.createIndex('parentPath', 'parentPath', { unique: false });
@@ -150,7 +151,7 @@ class Database {
         reqAll.onerror = () => reject(reqAll.error);
         reqAll.onsuccess = () => {
           const all = reqAll.result as FileEntry[];
-          resolve(all.filter((e) => (e as any).hardLinkKey === key));
+          resolve(all.filter((e) => e.hardLinkKey === key));
         };
         return;
       }

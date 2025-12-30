@@ -15,7 +15,7 @@ export interface DirSortConfig {
   // 图标模式下的自由摆放位置
   iconPositions?: Record<string, IconPosition>;
   // 额外元数据（预留）
-  meta?: Record<string, any>;
+  meta?: Record<string, unknown>;
   updatedAt: number;
 }
 
@@ -51,7 +51,7 @@ class SortDatabase {
       const store = tx.objectStore(STORE_NAME);
       const req = store.get(dir);
       req.onerror = () => reject(req.error);
-      req.onsuccess = () => resolve(req.result as any);
+      req.onsuccess = () => resolve(req.result as DirSortConfig | undefined);
     });
   }
 

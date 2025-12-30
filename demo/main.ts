@@ -845,9 +845,12 @@ async function ensurePersistenceBeforeUpload(): Promise<void> {
     agree.onclick = async () => {
       try {
         await new Promise<void>((res) => {
-          fs.requestPersistentStorage((err: any, _ok?: boolean) => {
+          fs.requestPersistentStorage((err: unknown, _ok?: boolean) => {
             if (err) {
-              alert('请求持久化失败：' + (err?.message || err));
+              alert(
+                '请求持久化失败：' +
+                  (err instanceof Error ? err.message : String(err))
+              );
             }
             res();
           });

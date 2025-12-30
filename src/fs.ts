@@ -760,7 +760,7 @@ const corePromises = {
   async open(
     path: string,
     flags: string,
-    _mode?: number
+    _mode?: number | string
   ): Promise<{
     fd: number;
     close: () => Promise<void>;
@@ -1186,7 +1186,7 @@ const promises: CorePromises = {
   access: (path: string, mode?: number) =>
     runWithPluginPromise('access', [path], path, mode),
   nlink: (path: string) => runWithPluginPromise('nlink', [path], path),
-  open: async (path: string, flags: string, mode?: number) => {
+  open: async (path: string, flags: string, mode?: number | string) => {
     const plugin = resolvePluginFromPaths([path]);
     const handler = plugin?.handlers.open as CorePromises['open'] | undefined;
     const res = handler
@@ -1431,7 +1431,7 @@ function unwatchFile(
 
 // Placeholder unsupported methods
 function notSupported(name: string) {
-  return async (..._args: any[]) => {
+  return async (..._args: unknown[]) => {
     throw new Error(
       `${name} is not supported in browser IndexedDB environment`
     );
@@ -1462,21 +1462,21 @@ export const fs = {
   open(
     path: string,
     flags: string,
-    mode: any,
-    cb?: (err: any, fd?: number) => void
+    mode?: number | string,
+    cb?: (err: unknown, fd?: number) => void
   ) {
     if (typeof mode === 'function') {
       cb = mode;
-      mode = undefined as any;
+      mode = undefined;
     }
-    const p = promises.open(path, flags, mode as any).then((h) => h.fd);
+    const p = promises.open(path, flags, mode as number | string | undefined).then((h) => h.fd);
     if (cb) {
-      p.then((fd) => (cb as any)(null, fd)).catch((e) => (cb as any)(e));
+      p.then((fd) => cb(null, fd)).catch((e) => cb(e));
       return;
     }
     return p;
   },
-  close(fd: number, cb?: (err?: any) => void) {
+  close(fd: number, cb?: (err?: unknown) => void) {
     const p = promises.close(fd);
     if (cb) {
       p.then(() => cb()).catch(cb);
@@ -1490,7 +1490,7 @@ export const fs = {
     offset: number,
     length: number,
     position: number | null,
-    cb?: (err: any, bytesRead?: number, buffer?: Uint8Array) => void
+    cb?: (err: unknown, bytesRead?: number, buffer?: Uint8Array) => void
   ) {
     const p = promises
       .read(fd, buffer, offset, length, position)
@@ -1507,9 +1507,13 @@ export const fs = {
     offset?: number,
     length?: number,
     position?: number | null,
-    cb?: (err: any, bytesWritten?: number, buffer?: any) => void
+    cb?: (
+      err: unknown,
+      bytesWritten?: number,
+      buffer?: Uint8Array | string
+    ) => void
   ) {
-    const p = promises.write(fd, buffer as any, offset, length, position);
+    const p = promises.write(fd, buffer, offset, length, position);
     if (cb) {
       p.then((r) => cb(null, r.bytesWritten, r.buffer)).catch(cb);
       return;

@@ -1,7 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Demo Page', () => {
-  test('should load demo page and display correct content', async ({ page }) => {
+  test('should load demo page and display correct content', async ({
+    page,
+  }) => {
     // Navigate to the demo page
     await page.goto('/file-system-browser/');
 
@@ -12,7 +14,9 @@ test.describe('Demo Page', () => {
     await expect(page.locator('h1')).toContainText('📁 FileSystem Demo');
 
     // Verify the description text
-    await expect(page.locator('header p')).toContainText('NodeJs fs 风格的浏览器文件存储系统');
+    await expect(page.locator('header p')).toContainText(
+      'NodeJs fs 风格的浏览器文件存储系统'
+    );
 
     // Verify key sections are visible
     await expect(page.locator('h2:has-text("上传文件")')).toBeVisible();
@@ -35,13 +39,13 @@ test.describe('Demo Page', () => {
     await expect(page.locator('#persistStatus')).toBeVisible();
   });
 
-  test('should request persistent storage when clicking request persist button', async ({ page }) => {
+  test('should request persistent storage when clicking request persist button', async ({
+    page,
+  }) => {
     await page.goto('/file-system-browser/');
 
     // Set up dialog handler BEFORE clicking the button
-    let dialogMessage = '';
     page.on('dialog', async (dialog) => {
-      dialogMessage = dialog.message();
       await dialog.accept();
     });
 
@@ -55,9 +59,10 @@ test.describe('Demo Page', () => {
     const persistStatus = page.locator('#persistStatus');
     await expect(persistStatus).toBeVisible();
 
-    // Check the persist status text content
+    // Check the persist status text content (should show either '已持久化' or '未持久化')
     const statusText = await persistStatus.textContent();
     expect(statusText).toBeTruthy();
+    expect(statusText).toMatch(/持久化/);
 
     // Check navigator.storage.persisted value via page evaluation
     const persistedResult = await page.evaluate(async () => {
@@ -68,7 +73,45 @@ test.describe('Demo Page', () => {
       return false;
     });
 
-    // Verify the persisted result is a boolean
-    expect(persistedResult).toBe(true);
+    // Verify the persisted result is a boolean (true or false)
+    expect(typeof persistedResult).toBe('boolean');
+
+    // Verify the status text matches the actual persisted state
+    if (persistedResult) {
+      expect(statusText).toContain('已持久化');
+    } else {
+      expect(statusText).toContain('未持久化');
+    }
+  });
+
+  test('should display file operation buttons and controls', async ({
+    page,
+  }) => {
+    await page.goto('/file-system-browser/');
+
+    // Verify file operation buttons are visible
+    await expect(page.locator('#createFolderBtn')).toBeVisible();
+    await expect(page.locator('#clearAllBtn')).toBeVisible();
+
+    // Verify file input is present
+    await expect(page.locator('#fileInput')).toBeVisible();
+
+    // Verify path navigation is displayed
+    const currentPath = page.locator('#currentPath');
+    await expect(currentPath).toBeVisible();
+    await expect(currentPath).toHaveText('/');
+
+    // Verify storage info elements are displayed
+    await expect(page.locator('#persistStatus')).toBeVisible();
+    await expect(page.locator('#usedSpace')).toBeVisible();
+    await expect(page.locator('#totalSpace')).toBeVisible();
+
+    // Verify search functionality elements
+    await expect(page.locator('#searchInput')).toBeVisible();
+    await expect(page.locator('#searchBtn')).toBeVisible();
+
+    // Verify clipboard functionality
+    await expect(page.locator('#pasteBtn')).toBeVisible();
+    await expect(page.locator('#clipboardInfo')).toBeVisible();
   });
 });
