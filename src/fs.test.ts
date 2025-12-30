@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { fs, BufferPolyfill, Stats, Dirent, FileEntry, registerPlugin, usePlugin, unregisterPlugin } from './fs';
+import {
+  fs,
+  BufferPolyfill,
+  Stats,
+  Dirent,
+  FileEntry,
+  registerPlugin,
+  usePlugin,
+  unregisterPlugin,
+} from './fs';
 
 describe('BufferPolyfill', () => {
   describe('fromString', () => {
@@ -14,7 +23,9 @@ describe('BufferPolyfill', () => {
     });
 
     it('should throw error for unsupported encoding', () => {
-      expect(() => BufferPolyfill.fromString('test', 'invalid')).toThrow('Unsupported encoding: invalid');
+      expect(() => BufferPolyfill.fromString('test', 'invalid')).toThrow(
+        'Unsupported encoding: invalid'
+      );
     });
   });
 
@@ -82,7 +93,9 @@ describe('BufferPolyfill', () => {
 
     it('should throw error for unsupported encoding', () => {
       const buf = BufferPolyfill.fromString('test', 'utf8');
-      expect(() => buf.toString('invalid')).toThrow('Unsupported encoding: invalid');
+      expect(() => buf.toString('invalid')).toThrow(
+        'Unsupported encoding: invalid'
+      );
     });
   });
 });
@@ -313,7 +326,9 @@ describe('fs.promises - basic properties', () => {
 
     for (const method of methods) {
       expect(fs.promises).toHaveProperty(method);
-      expect(typeof fs.promises[method as keyof typeof fs.promises]).toBe('function');
+      expect(typeof fs.promises[method as keyof typeof fs.promises]).toBe(
+        'function'
+      );
     }
   });
 });

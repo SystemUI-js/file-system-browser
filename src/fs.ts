@@ -1469,7 +1469,9 @@ export const fs = {
       cb = mode;
       mode = undefined;
     }
-    const p = promises.open(path, flags, mode as number | string | undefined).then((h) => h.fd);
+    const p = promises
+      .open(path, flags, mode as number | string | undefined)
+      .then((h) => h.fd);
     if (cb) {
       p.then((fd) => cb(null, fd)).catch((e) => cb(e));
       return;

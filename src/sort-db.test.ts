@@ -33,8 +33,12 @@ describe('SortDatabase', () => {
       } as unknown as IDBDatabase;
 
       const request = {
-        onsuccess: null as ((this: IDBOpenDBRequest, ev: Event) => unknown) | null,
-        onerror: null as ((this: IDBOpenDBRequest, ev: Event) => unknown) | null,
+        onsuccess: null as
+          | ((this: IDBOpenDBRequest, ev: Event) => unknown)
+          | null,
+        onerror: null as
+          | ((this: IDBOpenDBRequest, ev: Event) => unknown)
+          | null,
         onblocked: null,
         onupgradeneeded: null,
         addEventListener: vi.fn(),
@@ -45,7 +49,7 @@ describe('SortDatabase', () => {
       indexedDB.open.mockReturnValue(request);
 
       const initPromise = sortDb.init();
-      
+
       // Simulate success
       if (request.onsuccess) {
         Object.defineProperty(request, 'result', { value: mockDB });
@@ -56,7 +60,6 @@ describe('SortDatabase', () => {
 
       expect(indexedDB.open).toHaveBeenCalledWith('FileSystemSortDB', 1);
     });
-
   });
 
   describe('database operations', () => {
