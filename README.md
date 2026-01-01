@@ -171,3 +171,10 @@ await sorter.onEntriesMoved('/from', '/to', ['moved.txt']);
 - `sorter` 的键默认使用“子项名称”（同一目录下唯一）。如你的 UI 使用完整路径作为唯一标识，可在接入层做转换。
 - 常规排序会“目录靠前，同类比较”。自由排序时不进行目录/文件分组，由 `manualOrder`/`iconPositions` 决定顺序。
 - 该模块与 `fs` 解耦。你可以在任何地方拿到目录条目后调用 `sorter.applySort()` 进行排序。
+
+
+
+
+
+
+
