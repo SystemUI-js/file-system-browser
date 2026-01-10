@@ -1,4 +1,44 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
+
+// Helper type for window.fs access
+interface WindowWithFs extends Window {
+  fs: {
+    promises: {
+      writeFile: (path: string, data: string) => Promise<void>;
+      mkdir: (path: string, opts: { recursive: boolean }) => Promise<void>;
+    };
+  };
+}
+
+// Helper function to write file via page evaluate
+async function writeFile(
+  page: Page,
+  fileName: string,
+  content: string
+): Promise<void> {
+  await page.evaluate(
+    async ({ fileName, content }) => {
+      const fs = (window as unknown as WindowWithFs).fs;
+      if (fs?.promises?.writeFile) {
+        await fs.promises.writeFile(`/${fileName}`, content);
+      }
+    },
+    { fileName, content }
+  );
+}
+
+// Helper function to create folder via page evaluate
+async function createFolder(page: Page, folderName: string): Promise<void> {
+  await page.evaluate(
+    async ({ folder }) => {
+      const fs = (window as unknown as WindowWithFs).fs;
+      if (fs?.promises?.mkdir) {
+        await fs.promises.mkdir(`/${folder}`, { recursive: true });
+      }
+    },
+    { folder: folderName }
+  );
+}
 
 test.describe('Demo Page', () => {
   test('should load demo page and display correct content', async ({
@@ -35,7 +75,12 @@ test.describe('Demo Page', () => {
     });
 
     await page.click('#requestPersistBtn');
-    await page.waitForTimeout(500);
+
+    // 等待 persistStatus 元素内容更新
+    await page.waitForFunction(() => {
+      const el = document.querySelector('#persistStatus');
+      return el && el.textContent && el.textContent.length > 0;
+    });
 
     const persistStatus = page.locator('#persistStatus');
     await expect(persistStatus).toBeVisible();
@@ -68,21 +113,21 @@ test.describe('Folder Operations', () => {
 
     page.removeAllListeners('dialog');
 
-    page.once('dialog', async (dialog) => {
-      expect(dialog.type()).toBe('prompt');
-      expect(dialog.message()).toContain('请输入文件夹名称');
-      await dialog.accept(folderName);
+    let dialogCount = 0;
+    page.on('dialog', async (dialog) => {
+      if (dialog.type() === 'prompt') {
+        if (dialogCount === 0) {
+          expect(dialog.message()).toContain('请输入文件夹名称');
+          await dialog.accept(folderName);
+        }
+      } else {
+        expect(dialog.message()).toContain('文件夹创建成功');
+        await dialog.accept();
+      }
+      dialogCount++;
     });
 
     await page.click('#createFolderBtn');
-    await page.waitForTimeout(200);
-
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('文件夹创建成功');
-      await dialog.accept();
-    });
-
-    await page.waitForTimeout(500);
 
     await expect(
       page.locator(`.file-item:has-text("${folderName}")`)
@@ -554,22 +599,19 @@ test.describe('Sort Functionality', () => {
   test('should sort files by name', async ({ page }) => {
     await page.goto('/file-system-browser/');
 
-    await page.evaluate(async () => {
-      const fs = (
-        window as unknown as {
-          fs: {
-            promises: {
-              writeFile: (path: string, data: string) => Promise<void>;
-            };
-          };
+    const suffix = Date.now();
+
+    await page.evaluate(
+      async ({ suffix }) => {
+        const fs = (window as unknown as WindowWithFs).fs;
+        if (fs?.promises?.writeFile) {
+          await fs.promises.writeFile(`/z-file-${suffix}.txt`, 'z content');
+          await fs.promises.writeFile(`/a-file-${suffix}.txt`, 'a content');
+          await fs.promises.writeFile(`/m-file-${suffix}.txt`, 'm content');
         }
-      ).fs;
-      if (fs?.promises?.writeFile) {
-        await fs.promises.writeFile('/z-file.txt', 'z content');
-        await fs.promises.writeFile('/a-file.txt', 'a content');
-        await fs.promises.writeFile('/m-file.txt', 'm content');
-      }
-    });
+      },
+      { suffix }
+    );
 
     await page.reload();
     await page.waitForTimeout(500);
@@ -584,14 +626,14 @@ test.describe('Sort Functionality', () => {
 
     const testFiles = fileNames.filter(
       (name) =>
-        name.includes('a-file') ||
-        name.includes('m-file') ||
-        name.includes('z-file')
+        name.includes(`a-file-${suffix}`) ||
+        name.includes(`m-file-${suffix}`) ||
+        name.includes(`z-file-${suffix}`)
     );
 
-    const aIndex = testFiles.findIndex((n) => n.includes('a-file'));
-    const mIndex = testFiles.findIndex((n) => n.includes('m-file'));
-    const zIndex = testFiles.findIndex((n) => n.includes('z-file'));
+    const aIndex = testFiles.findIndex((n) => n.includes(`a-file-${suffix}`));
+    const mIndex = testFiles.findIndex((n) => n.includes(`m-file-${suffix}`));
+    const zIndex = testFiles.findIndex((n) => n.includes(`z-file-${suffix}`));
 
     expect(aIndex).toBeLessThan(mIndex);
     expect(mIndex).toBeLessThan(zIndex);
@@ -600,22 +642,19 @@ test.describe('Sort Functionality', () => {
   test('should sort files by size', async ({ page }) => {
     await page.goto('/file-system-browser/');
 
-    await page.evaluate(async () => {
-      const fs = (
-        window as unknown as {
-          fs: {
-            promises: {
-              writeFile: (path: string, data: string) => Promise<void>;
-            };
-          };
+    const suffix = Date.now();
+
+    await page.evaluate(
+      async ({ suffix }) => {
+        const fs = (window as unknown as WindowWithFs).fs;
+        if (fs?.promises?.writeFile) {
+          await fs.promises.writeFile(`/small-${suffix}.txt`, 'x');
+          await fs.promises.writeFile(`/medium-${suffix}.txt`, 'x'.repeat(100));
+          await fs.promises.writeFile(`/large-${suffix}.txt`, 'x'.repeat(1000));
         }
-      ).fs;
-      if (fs?.promises?.writeFile) {
-        await fs.promises.writeFile('/small.txt', 'x');
-        await fs.promises.writeFile('/medium.txt', 'x'.repeat(100));
-        await fs.promises.writeFile('/large.txt', 'x'.repeat(1000));
-      }
-    });
+      },
+      { suffix }
+    );
 
     await page.reload();
     await page.waitForTimeout(500);
@@ -630,12 +669,16 @@ test.describe('Sort Functionality', () => {
 
     const sizeFiles = fileNames.filter(
       (name) =>
-        name === 'small.txt' || name === 'medium.txt' || name === 'large.txt'
+        name === `small-${suffix}.txt` ||
+        name === `medium-${suffix}.txt` ||
+        name === `large-${suffix}.txt`
     );
 
-    const largeIndex = sizeFiles.findIndex((n) => n === 'large.txt');
-    const mediumIndex = sizeFiles.findIndex((n) => n === 'medium.txt');
-    const smallIndex = sizeFiles.findIndex((n) => n === 'small.txt');
+    const largeIndex = sizeFiles.findIndex((n) => n === `large-${suffix}.txt`);
+    const mediumIndex = sizeFiles.findIndex(
+      (n) => n === `medium-${suffix}.txt`
+    );
+    const smallIndex = sizeFiles.findIndex((n) => n === `small-${suffix}.txt`);
 
     expect(largeIndex).toBeLessThan(mediumIndex);
     expect(mediumIndex).toBeLessThan(smallIndex);
