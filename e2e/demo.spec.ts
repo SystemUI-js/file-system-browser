@@ -113,21 +113,20 @@ test.describe('Folder Operations', () => {
 
     page.removeAllListeners('dialog');
 
-    let dialogCount = 0;
-    page.on('dialog', async (dialog) => {
-      if (dialog.type() === 'prompt') {
-        if (dialogCount === 0) {
-          expect(dialog.message()).toContain('请输入文件夹名称');
-          await dialog.accept(folderName);
-        }
-      } else {
-        expect(dialog.message()).toContain('文件夹创建成功');
-        await dialog.accept();
-      }
-      dialogCount++;
+    page.once('dialog', async (dialog) => {
+      expect(dialog.type()).toBe('prompt');
+      expect(dialog.message()).toContain('请输入文件夹名称');
+      await dialog.accept(folderName);
     });
 
     await page.click('#createFolderBtn');
+    await page.waitForTimeout(200);
+
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('文件夹创建成功');
+      await dialog.accept();
+    });
+    await page.waitForTimeout(500);
 
     await expect(
       page.locator(`.file-item:has-text("${folderName}")`)
