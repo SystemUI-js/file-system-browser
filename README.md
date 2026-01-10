@@ -1,19 +1,178 @@
+# 浏览器文件系统（File System Browser）
 
-### 存储持久化与磁盘空间（新）
+一个在浏览器中使用 IndexedDB 实现的“类 Node.js `fs` / 类 WebDAV”文件系统接口，适用于离线文件存储、文件管理器、虚拟文件系统等场景。
+
+## 核心特性
+
+- IndexedDB 持久化：文件/目录数据存放在浏览器本地（可离线）
+- Node.js 风格 API：同时提供 `fs.promises` 与回调（error-first）两种用法
+- 基础文件能力：读写、追加、复制、重命名、删除、遍历目录等
+- 链接能力：支持软链接（`symlink/readlink`）与硬链接（`link/nlink`）
+- 文件描述符：支持 `open/read/write/close`
+- 监控与流：提供 `watch/watchFile` 与 `createReadStream/createWriteStream`（best-effort）
+- 存储增强：`requestPersistentStorage()` 与 `diskUsage()`（对齐 Node 的 `fs.diskUsage`）
+- 可插拔插件：路径拦截机制，可挂载 WebDAV/网盘/SMB 或自定义虚拟文件
+- 目录排序：独立单例 `sorter` 管理排序状态（单独 IndexedDB 表持久化）
+
+## 演示
+
+本仓库内置一个简单的文件管理 Demo（上传/下载、目录创建、复制/剪切/粘贴、软链接/硬链接、排序等）。
+
+```bash
+yarn install
+yarn dev
+```
+
+然后打开 `http://localhost:9973`。
+
+构建 Demo（用于静态部署）：
+
+```bash
+yarn build:demo
+```
+
+产物输出到 `dist-demo/`。
+
+## 安装
+
+```bash
+# 推荐：yarn
+yarn add @system-ui-js/file-system-browser
+
+# npm
+npm i @system-ui-js/file-system-browser
+```
+
+## 快速开始
+
+### Promise 用法（推荐）
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+await fs.promises.mkdir('/documents', { recursive: true });
+await fs.promises.writeFile('/documents/hello.txt', 'hello', 'utf8');
+
+const text = await fs.promises.readFile('/documents/hello.txt', 'utf8');
+console.log(text); // "hello"
+```
+
+### 回调用法（Node error-first）
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+fs.writeFile('/a.txt', 'hi', 'utf8', (err) => {
+  if (err) return console.error(err);
+  fs.readFile('/a.txt', 'utf8', (readErr, content) => {
+    if (readErr) return console.error(readErr);
+    console.log(content);
+  });
+});
+```
+
+### 读取目录（Dirent）
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+const dirents = await fs.promises.readdir('/', { withFileTypes: true });
+for (const d of dirents) {
+  console.log(d.name, d.isDirectory() ? 'dir' : 'file');
+}
+```
+
+### 软链接与硬链接
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+await fs.promises.writeFile('/src.txt', 'data', 'utf8');
+
+// 软链接：链接本身是一个独立条目（lstat 可区分），stat 会跟随到目标
+await fs.promises.symlink('/src.txt', '/sym.txt');
+console.log(await fs.promises.readlink('/sym.txt')); // "/src.txt"
+
+// 硬链接：多个路径指向同一份内容，写入会同步到同组内其他硬链接
+await fs.promises.link('/src.txt', '/hard.txt');
+console.log(await fs.promises.nlink('/src.txt')); // 2
+```
+
+### 文件描述符（open/read/write/close）
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+const h = await fs.promises.open('/fd.txt', 'w');
+await h.write('hello');
+await h.close();
+
+const fd = await fs.open('/fd.txt', 'r');
+const buf = new Uint8Array(5);
+const { bytesRead } = await fs.promises.read(fd, buf, 0, buf.length, 0);
+console.log(bytesRead, new TextDecoder().decode(buf));
+await fs.close(fd);
+```
+
+### 流（createReadStream/createWriteStream）
+
+```ts
+import fs, { Buffer } from '@system-ui-js/file-system-browser';
+
+const ws = fs.createWriteStream('/stream.txt');
+ws.on('finish', () => console.log('write finished'));
+ws.on('error', (e) => console.error('write error', e));
+await ws.write('part1-');
+await ws.end('part2');
+
+const rs = fs.createReadStream('/stream.txt', { highWaterMark: 4 });
+rs.on('data', (chunk: Buffer) => console.log('chunk:', chunk.toString()));
+rs.on('end', () => console.log('read end'));
+rs.on('error', (e) => console.error('read error', e));
+```
+
+### 监控（watch/watchFile）
+
+```ts
+import fs from '@system-ui-js/file-system-browser';
+
+const watcher = fs.watch('/watched.txt', (eventType, filename) => {
+  console.log(eventType, filename);
+});
+
+fs.watchFile('/watched.txt', (curr, prev) => {
+  console.log('changed:', prev.size, '->', curr.size);
+});
+
+await fs.promises.writeFile('/watched.txt', 'data', 'utf8');
+
+watcher.close();
+fs.unwatchFile('/watched.txt');
+```
+
+## API 速查
+
+- 默认导出：`fs`
+- 命名导出：`Dirent`、`Stats`、`Buffer`、`registerPlugin/usePlugin/unregisterPlugin`、`sorter`
+- `fs.promises`：Promise 版 API（推荐使用）
+- `fs.*`：回调版包装（也支持直接返回 Promise）
+
+说明：本库同时提供 `readFileSync/writeFileSync/...` 等带 `Sync` 后缀的方法名，但它们依旧是异步实现（返回 Promise 或接收回调），用于降低从 Node 迁移的心智负担。
+
+## 存储持久化与磁盘空间
 
 浏览器可能在空间紧张时清理站点数据。为尽量避免此情况，你可以请求“持久化存储”授权：
 
 ```ts
+import fs from '@system-ui-js/file-system-browser';
+
 // Promise 方式
 const persisted = await fs.promises.requestPersistentStorage();
 console.log('persisted:', persisted);
 
 // 回调方式（Node 风格 error-first）
 fs.requestPersistentStorage((err, ok) => {
-  if (err) {
-    console.error('request persistent failed:', err);
-    return;
-  }
+  if (err) return console.error('request persistent failed:', err);
   console.log('persisted:', ok);
 });
 ```
@@ -21,15 +180,16 @@ fs.requestPersistentStorage((err, ok) => {
 获取当前站点的可用/总空间（近似值，来源于 `navigator.storage.estimate()`），API 对齐 Node.js 的 `fs.diskUsage`（返回 `total`、`free`、`available`，此处 `free≈available`）：
 
 ```ts
+import fs from '@system-ui-js/file-system-browser';
+
 // Promise 方式
 const info = await fs.promises.diskUsage();
-// { total: number, free: number, available: number }
-console.log('quota:', info.total, 'free:', info.free, 'available:', info.available);
+console.log('total:', info.total, 'free:', info.free, 'available:', info.available);
 
 // 回调方式
-fs.diskUsage((err, info) => {
+fs.diskUsage((err, data) => {
   if (err) return console.error(err);
-  console.log(info);
+  console.log(data);
 });
 
 // BigInt 结果
@@ -38,44 +198,52 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 ```
 
 注意：
-- 这些能力依赖于浏览器的 Storage API（`navigator.storage.persisted/persist/estimate`）。在不支持的环境中，请自行做兼容处理。
+- 这些能力依赖于浏览器的 Storage API（`navigator.storage.persisted/persist/estimate`）。在不支持的环境中请自行做兼容处理。
 - 返回值为近似估计，具体行为与配额政策由浏览器实现决定。
 
-## 插件系统（新）
+## 插件系统
 
 本库提供可插拔的“路径拦截”机制，便于挂载 WebDAV/各类网盘/SMB 或自定义虚拟文件。插件代码可独立于本仓库维护。
 
 ### 核心 API
+
 - `registerPlugin(name, factory)`：注册插件工厂（仅登记，不启用）。
 - `usePlugin(name, options)`：按名称实例化并启用插件；若名称未注册会抛错；同名多次启用将覆盖旧实例。
 - `unregisterPlugin(name)`：停止并移除已启用的插件。
 
 ### 插件工厂签名
+
 ```ts
-type FsPluginFactory<TOptions = unknown> = (
-  options: TOptions,
-  ctx: FsPluginContext
-) => {
-  match: RegExp;                    // 命中后所有相关 fs 调用将路由到插件
-  handlers?: Partial<CorePromises>  // 按需覆盖，未实现的回退到内置 IndexedDB 版本
-             & Partial<UtilityHandlers>;
-};
+import type {
+  FsPluginContext,
+  FsPluginFactory,
+} from '@system-ui-js/file-system-browser';
+
+type MyFactory = FsPluginFactory<unknown>;
+
+const factory: MyFactory = (options, ctx: FsPluginContext) => ({
+  match: /^\\/myfs(\\/|$)/,
+  handlers: {
+    // 命中后相关 fs 调用将路由到插件；未实现的 API 自动回退到 ctx.baseFs
+  },
+});
 ```
 
 `ctx` 提供：
 - `baseFs`：内置 IndexedDB 版 `fs.promises`，可复用未覆盖的能力
-- `Buffer`：`BufferPolyfill`
+- `Buffer`：`BufferPolyfill`（从包里导出的 `Buffer`）
 - `createFd(path, flags?)` / `releaseFd(fd)`：创建/释放带插件标记的 fd（供自定义 `open` 及后续 `read/write/close` 使用）
 - `baseWatch` / `baseWatchFile` / `baseUnwatchFile`
 - `baseCreateReadStream` / `baseCreateWriteStream`
 
-可覆盖的方法包含所有 Promise 版 fs API（`readFile`、`writeFile`、`appendFile`、`rename`、`copyFile`、`mkdir`、`readdir`、`rm`、`unlink`、`rmdir`、`stat`、`lstat`、`readlink`、`symlink`、`link`、`exists`、`access`、`nlink`、`open`、`read`、`write`、`close`）以及工具方法 `watch`、`watchFile`、`unwatchFile`、`createReadStream`、`createWriteStream`。未实现的接口自动走内置实现。
+可覆盖的方法包含所有 Promise 版 fs API（如 `readFile/writeFile/rename/readdir/rm/stat/open/read/write/close` 等）以及工具方法 `watch/watchFile/unwatchFile/createReadStream/createWriteStream`。未实现的接口自动走内置实现。
 
-**注意**：若一次调用涉及的多个路径匹配到不同插件，会抛出异常以避免行为不一致；请保持拦截正则互斥。
+注意：若一次调用涉及的多个路径匹配到不同插件，会抛出异常以避免行为不一致；请保持拦截正则互斥。
 
 ### 最小示例：虚拟云盘只读插件
+
 ```ts
-import { registerPlugin, usePlugin, FsPluginContext } from '@system-ui-js/file-system-browser';
+import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
 
 type CloudOpts = { greeting?: string };
 
@@ -87,66 +255,30 @@ registerPlugin<CloudOpts>('cloud', (options, ctx) => ({
         `${options?.greeting ?? 'hello'}, reading ${path}`
       );
     },
-    // 未实现的 API 自动回退到 ctx.baseFs
   },
 }));
 
 usePlugin('cloud', { greeting: 'hi' });
 
 const content = await fs.promises.readFile('/cloud/demo.txt', 'utf8');
+console.log(content);
 ```
 
-## 开发
+## 目录排序
 
-```bash
-# 安装依赖
-yarn install
-
-# 启动开发服务器
-yarn dev
-
-# 构建库
-yarn build
-
-# 构建 demo
-yarn build:demo
-
-# 代码检查
-yarn lint
-
-# 代码格式化
-yarn format
-```
-
-## 许可证
-
-MIT License
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 目录排序（新）
-
-排序不是文件系统（fs）本身的职责，因此本库将“排序状态”独立管理，提供一个与 `fs` 并列的工具单例 `sorter`，并使用单独的 IndexedDB 表进行持久化（不会污染 `fs` 的数据库结构）。
+排序不是文件系统（`fs`）本身的职责，因此本库将“排序状态”独立管理，提供一个与 `fs` 并列的工具单例 `sorter`，并使用单独的 IndexedDB 表进行持久化（不会污染 `fs` 的数据库结构）。
 
 能力概览：
 
 - 每个目录可单独保存排序配置：`mode` ∈ `name | createdAt | modifiedAt | size | manual`，`order` ∈ `asc | desc`
-- 自由排序（manual）：
-  - 列表模式下：使用 `manualOrder` 按名称顺序排列
-  - 图标模式下：使用 `iconPositions` 记录每个子项的摆放坐标（x,y）
-- 迁移/复制项目到其他目录时，自动清理源目录对应子项的自由排序信息，并将目标目录的对应条目附加到末尾（不设置坐标，交给 UI 决定）。
-
-导出位置：
+- 自由排序（manual）
+  - 列表模式：使用 `manualOrder` 按名称顺序排列
+  - 图标模式：使用 `iconPositions` 记录每个子项的摆放坐标（x,y）
+- 迁移/复制到其他目录时：自动清理源目录对应子项的自由排序信息，并将目标目录的对应条目附加到末尾（不设置坐标，交给 UI 决定）。
 
 ```ts
-import fs, { sorter } from '@system-ui-js/file-system-browser';
-```
+import { sorter } from '@system-ui-js/file-system-browser';
 
-核心 API：
-
-```ts
 // 获取/设置目录排序配置
 const cfg = await sorter.getConfig('/documents');
 await sorter.setConfig('/documents', { mode: 'name', order: 'asc' });
@@ -164,10 +296,54 @@ await sorter.onEntriesRemoved('/documents', ['old.txt']);
 await sorter.onEntriesMoved('/from', '/to', ['moved.txt']);
 ```
 
-类型：`DirSortConfig`, `SortMode`, `SortOrder`, `IconPosition` 也一并导出。
+类型：`DirSortConfig`、`SortMode`、`SortOrder`、`IconPosition` 也一并导出。
 
 注意：
-
 - `sorter` 的键默认使用“子项名称”（同一目录下唯一）。如你的 UI 使用完整路径作为唯一标识，可在接入层做转换。
-- 常规排序会“目录靠前，同类比较”。自由排序时不进行目录/文件分组，由 `manualOrder`/`iconPositions` 决定顺序。
+- 常规排序会“目录靠前，同类比较”。自由排序时不进行目录/文件分组，由 `manualOrder/iconPositions` 决定顺序。
 - 该模块与 `fs` 解耦。你可以在任何地方拿到目录条目后调用 `sorter.applySort()` 进行排序。
+
+## 开发
+
+```bash
+# 安装依赖
+yarn install
+
+# 启动开发服务器（Demo）
+yarn dev
+
+# 构建库
+yarn build
+
+# 构建 Demo
+yarn build:demo
+
+# 代码检查
+yarn lint
+
+# 代码格式化
+yarn format
+```
+
+端到端测试（Playwright）：
+
+```bash
+yarn test:e2e
+```
+
+## 兼容性与注意事项
+
+- 本库面向浏览器环境（依赖 `indexedDB`）；不同浏览器的存储配额与清理策略不同，建议配合 `requestPersistentStorage()`。
+- 路径使用 POSIX 风格：会自动补全开头 `/`，并去掉末尾多余的 `/`（根目录 `/` 除外）。
+- 编码支持为子集：`readFile/writeFile/appendFile` 的字符串编码目前主要支持 `utf8/utf-8` 与 `base64`，其他编码会抛出错误。
+- 流与监控为 best-effort 实现：`createWriteStream` 在内存中累积数据，`end()` 时一次性落盘；`watch/watchFile` 为进程内事件分发，并且仅监听“精确路径”（不会像真实文件系统那样自动监听目录下的子项变更）。
+- 未实现的 Node API（如 `realpath/chmod/chown/cp/mkdtemp` 等）会抛出不支持错误。
+- 数据落盘位置：IndexedDB 数据库名为 `FileSystemDB`；目录排序数据库名为 `FileSystemSortDB`。
+
+## 许可证
+
+MIT License
+
+## 贡献
+
+欢迎提交 Issue 和 Pull Request！
