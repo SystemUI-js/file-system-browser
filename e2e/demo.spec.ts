@@ -113,19 +113,20 @@ test.describe('Folder Operations', () => {
 
     page.removeAllListeners('dialog');
 
-    page.once('dialog', async (dialog) => {
-      expect(dialog.type()).toBe('prompt');
-      expect(dialog.message()).toContain('请输入文件夹名称');
-      await dialog.accept(folderName);
+    let dialogCount = 0;
+    page.on('dialog', async (dialog) => {
+      if (dialogCount === 0) {
+        expect(dialog.type()).toBe('prompt');
+        expect(dialog.message()).toContain('请输入文件夹名称');
+        await dialog.accept(folderName);
+      } else {
+        expect(dialog.message()).toContain('文件夹创建成功');
+        await dialog.accept();
+      }
+      dialogCount++;
     });
 
     await page.click('#createFolderBtn');
-    await page.waitForTimeout(200);
-
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('文件夹创建成功');
-      await dialog.accept();
-    });
     await page.waitForTimeout(500);
 
     await expect(
@@ -141,15 +142,17 @@ test.describe('Folder Operations', () => {
 
     page.removeAllListeners('dialog');
 
-    page.once('dialog', async (dialog) => {
-      await dialog.accept(folderName);
+    let dialogCount = 0;
+    page.on('dialog', async (dialog) => {
+      if (dialogCount === 0) {
+        await dialog.accept(folderName);
+      } else {
+        await dialog.accept();
+      }
+      dialogCount++;
     });
-    await page.click('#createFolderBtn');
-    await page.waitForTimeout(200);
 
-    page.once('dialog', async (dialog) => {
-      await dialog.accept();
-    });
+    await page.click('#createFolderBtn');
     await page.waitForTimeout(500);
 
     await expect(page.locator('#currentPath')).toHaveText('/');
@@ -363,20 +366,20 @@ test.describe('File Operations', () => {
       page.locator(`.file-item:has-text("${testFileName}")`)
     ).toBeVisible();
 
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('确定要删除');
-      await dialog.accept();
+    let dialogCount = 0;
+    page.on('dialog', async (dialog) => {
+      if (dialogCount === 0) {
+        expect(dialog.message()).toContain('确定要删除');
+        await dialog.accept();
+      } else {
+        expect(dialog.message()).toContain('删除成功');
+        await dialog.accept();
+      }
+      dialogCount++;
     });
 
     const fileItem = page.locator(`.file-item:has-text("${testFileName}")`);
     await fileItem.locator('button:has-text("删除")').click();
-    await page.waitForTimeout(200);
-
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('删除成功');
-      await dialog.accept();
-    });
-
     await page.waitForTimeout(500);
 
     await expect(
@@ -722,19 +725,19 @@ test.describe('Clear All Files', () => {
       page.locator('.file-item:has-text("clear-test-folder")')
     ).toBeVisible();
 
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('确定要清空所有文件吗');
-      await dialog.accept();
+    let dialogCount = 0;
+    page.on('dialog', async (dialog) => {
+      if (dialogCount === 0) {
+        expect(dialog.message()).toContain('确定要清空所有文件吗');
+        await dialog.accept();
+      } else {
+        expect(dialog.message()).toContain('所有文件已清空');
+        await dialog.accept();
+      }
+      dialogCount++;
     });
 
     await page.click('#clearAllBtn');
-    await page.waitForTimeout(200);
-
-    page.once('dialog', async (dialog) => {
-      expect(dialog.message()).toContain('所有文件已清空');
-      await dialog.accept();
-    });
-
     await page.waitForTimeout(500);
 
     await expect(page.locator('.empty-state')).toBeVisible();
