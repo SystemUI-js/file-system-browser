@@ -1,0 +1,192 @@
+name: AutoChangeLog
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-changelog:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get merged PR information
+        id: pr-info
+        run: |
+          echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          echo "pr_title=${{ github.event.pull_request.title }}" >> $GITHUB_OUTPUT
+          echo "pr_body=${{ github.event.pull_request.body }}" >> $GITHUB_OUTPUT
+          echo "pr_author=${{ github.event.pull_request.user.login }}" >> $GITHUB_OUTPUT
+
+      - name: Get commit history
+        id: git-history
+        run: |
+          # Get commits since last release tag or last changelog update
+          git fetch origin main
+          COMMITS=$(git log --oneline $(git describe --tags --abbrev=0 2>/dev/null || echo "")..HEAD 2>/dev/null || git log --oneline -20)
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Analyze changes and generate changelog with iFlow
+        uses: iflow-ai/iflow-cli-action@v2.0.0
+        id: iflow-changelog
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_TITLE: ${{ steps.pr-info.outputs.pr_title }}
+          PR_BODY: ${{ steps.pr-info.outputs.pr_body }}
+          PR_AUTHOR: ${{ steps.pr-info.outputs.pr_author }}
+          COMMITS: ${{ steps.git-history.outputs.commits }}
+        with:
+          api_key: ${{ secrets.IFLOW_API_KEY }}
+          model: "glm-4.7"
+          timeout: "600"
+          prompt: |
+            ## Role
+            You are a changelog generator assistant. Your task is to analyze GitHub pull request changes and generate appropriate changelog entries.
+
+            ## Context
+            - PR Title: "${PR_TITLE}"
+            - PR Description: "${PR_BODY}"
+            - PR Author: "${PR_AUTHOR}"
+            - Recent Commits:
+            ```
+            ${COMMITS}
+            ```
+
+            ## Task
+            Analyze the PR changes and generate a changelog entry for the [Unreleased] section following the Keep a Changelog format (https://keepachangelog.com/en/1.0.0/).
+
+            ## Requirements
+            1. Analyze the PR title, description, and commits to understand what changed
+            2. Categorize the change into one of these categories:
+               - **Added** for new features
+               - **Changed** for changes in existing functionality
+               - **Deprecated** for soon-to-be removed features
+               - **Removed** for now removed features
+               - **Fixed** for any bug fixes
+               - **Security** for security fixes
+            3. Write clear, concise descriptions following these rules:
+               - Use imperative mood ("Add" not "Added")
+               - Start with action verb
+               - Be specific about what changed
+               - Include relevant file names or component names
+               - Reference issue/PR numbers if available
+            4. Output format:
+               - Only output the changelog entry content (no markdown code blocks)
+               - Do NOT include the category header (### Added/Changed/Fixed etc)
+               - Just list the bullet points
+               - Example format:
+                 - Implement user authentication feature with JWT tokens
+                 - Fix memory leak in data processing module
+                 - Add support for dark mode in settings
+
+            ## Guidelines
+            - Be concise but informative
+            - Focus on user-facing changes
+            - Technical/internal changes should be mentioned if significant
+            - If the change is trivial or only affects development workflow, mention that
+            - If you cannot determine the change type clearly, use "Fixed" as default
+
+      - name: Update CHANGELOG.md
+        id: update-changelog
+        run: |
+          # Read current changelog
+          CHANGELOG=$(cat CHANGELOG.md)
+          
+          # Get the generated changelog entry from iFlow
+          CHANGELOG_ENTRY="${{ steps.iflow-changelog.outputs.result }}"
+          
+          # Get PR number
+          PR_NUMBER="${{ steps.pr-info.outputs.pr_number }}"
+          
+          # Format the new entry with proper markdown
+          if [ -n "$CHANGELOG_ENTRY" ] && [ "$CHANGELOG_ENTRY" != "No changes detected" ]; then
+            # Split the entry into lines and add bullet points
+            IFS='
+            '
+            NEW_CONTENT="### Added\n\n"
+            while IFS= read -r line; do
+              # Clean up the line and add to new content
+              CLEAN_LINE=$(echo "$line" | sed 's/^[ \t]*//' | sed 's/[ \t]*$//')
+              if [ -n "$CLEAN_LINE" ]; then
+                NEW_CONTENT="$NEW_CONTENT- $CLEAN_LINE (#$PR_NUMBER)\n"
+              fi
+            done <<< "$CHANGELOG_ENTRY"
+            
+            # Remove trailing newline
+            NEW_CONTENT=$(echo "$NEW_CONTENT" | sed '$ s/\\n$//')
+            
+            # Insert after [Unreleased] line
+            CHANGELOG=$(awk -v new="$NEW_CONTENT" '
+              /^## \[Unreleased\]/ {
+                print
+                getline
+                print
+                print ""
+                print new
+                print ""
+                next
+              }
+              { print }
+            ' CHANGELOG.md)
+            
+            # Write back to file
+            echo "$CHANGELOG" > CHANGELOG.md
+            
+            echo "changelog_updated=true" >> $GITHUB_OUTPUT
+            echo "changelog_content<<EOF" >> $GITHUB_OUTPUT
+            echo "$NEW_CONTENT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog_updated=false" >> $GITHUB_OUTPUT
+            echo "No significant changes detected for changelog"
+          fi
+
+      - name: Commit and push changes
+        if: steps.update-changelog.outputs.changelog_updated == 'true'
+        run: |
+          git add CHANGELOG.md
+          git status
+          git commit -m "docs(changelog): update changelog for PR #${{ github.event.pull_request.number }}
+
+          - Automated changelog update by AutoChangeLog workflow
+          - PR: ${{ github.event.pull_request.title }}
+          
+          Generated by AutoChangeLog GitHub Action"
+          git push origin main
+
+      - name: Post summary
+        if: always()
+        run: |
+          echo "## AutoChangeLog Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR Number:** #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**PR Title:** ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.update-changelog.outputs.changelog_updated }}" == "true" ]; then
+            echo "**Changelog Updated:** ✅" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**New Entries:**" >> $GITHUB_STEP_SUMMARY
+            echo "${{ steps.update-changelog.outputs.changelog_content }}" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Changelog Updated:** ❌ No significant changes" >> $GITHUB_STEP_SUMMARY
+          fi
