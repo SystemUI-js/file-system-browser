@@ -6,6 +6,7 @@ export default defineConfig({
   base: '/file-system-browser/',
   server: {
     port: 9973,
+    host: true,
   },
   build: {
     outDir: '../dist-demo',

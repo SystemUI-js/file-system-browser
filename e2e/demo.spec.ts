@@ -65,6 +65,16 @@ test.describe('Demo Page', () => {
     await expect(page.locator('#persistStatus')).toBeVisible();
   });
 
+  test('should initialize file system without error', async ({ page }) => {
+    await page.goto('/file-system-browser/');
+    // Wait for async init() to complete (registers and uses IndexedDB plugin)
+    await page.waitForTimeout(500);
+    // Verify the file list container is present (init succeeded)
+    await expect(page.locator('#fileList')).toBeVisible();
+    // Verify current path shows root
+    await expect(page.locator('#currentPath')).toHaveText('/');
+  });
+
   test('should request persistent storage when clicking request persist button', async ({
     page,
   }) => {
@@ -103,6 +113,7 @@ test.describe('Demo Page', () => {
 test.describe('Folder Operations', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/file-system-browser/');
+    await page.waitForTimeout(500);
     page.on('dialog', async (dialog) => {
       await dialog.accept();
     });
@@ -176,6 +187,7 @@ test.describe('Folder Operations', () => {
 test.describe('File Operations', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/file-system-browser/');
+    await page.waitForTimeout(500);
     page.on('dialog', async (dialog) => {
       await dialog.accept();
     });

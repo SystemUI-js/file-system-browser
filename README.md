@@ -203,44 +203,106 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 
 ## 插件系统
 
-本库提供可插拔的“路径拦截”机制，便于挂载 WebDAV/各类网盘/SMB 或自定义虚拟文件。插件代码可独立于本仓库维护。
+### 插件系统概览
+本库提供可插拔的"路径拦截"机制，便于挂载 WebDAV/各类网盘/SMB 或自定义虚拟文件。插件代码可独立于本仓库维护。
 
-### 核心 API
+核心思想：每个插件声明一个 `match` 正则表达式，匹配到的路径由该插件处理，未实现的 API 自动回退到内置 IndexedDB 实现。插件不修改内置数据库，只负责特定路径前缀下的读写逻辑。
 
-- `registerPlugin(name, factory)`：注册插件工厂（仅登记，不启用）。
-- `usePlugin(name, options)`：按名称实例化并启用插件；若名称未注册会抛错；同名多次启用将覆盖旧实例。
+### 为什么插件是可选的
+主包不会自动挂载任何存储插件——你需要显式注册并启用插件后才生效。这避免了隐式依赖，也让你完全掌控要引入哪些存储后端。按需加载也便于 tree-shaking。
+
+### 生命周期 API
+
+插件有三个状态：注册（工厂函数登记）、启用（实例化并挂载）、注销（卸载并移除）：
+
+- `registerPlugin(name, factory)`：注册插件工厂（仅登记，不启用）。`factory` 是 `FsPluginFactory<T>` 类型的函数。
+- `usePlugin(name, options?)`：按名称实例化并启用插件；若名称未注册会抛错；同名多次启用将覆盖旧实例。`options` 会透传给工厂函数的第一个参数。
 - `unregisterPlugin(name)`：停止并移除已启用的插件。
 
-### 插件工厂签名
-
 ```ts
-import type {
-  FsPluginContext,
-  FsPluginFactory,
-} from '@system-ui-js/file-system-browser';
+import { registerPlugin, usePlugin, unregisterPlugin } from '@system-ui-js/file-system-browser';
 
-type MyFactory = FsPluginFactory<unknown>;
+// 注册（仅登记）
+registerPlugin('myfs', myFactory);
 
-const factory: MyFactory = (options, ctx: FsPluginContext) => ({
-  match: /^\\/myfs(\\/|$)/,
-  handlers: {
-    // 命中后相关 fs 调用将路由到插件；未实现的 API 自动回退到 ctx.baseFs
-  },
-});
+// 启用
+usePlugin('myfs', { /* 透传给工厂的选项 */ });
+
+// 注销
+unregisterPlugin('myfs');
 ```
 
-`ctx` 提供：
-- `baseFs`：内置 IndexedDB 版 `fs.promises`，可复用未覆盖的能力
-- `Buffer`：`BufferPolyfill`（从包里导出的 `Buffer`）
-- `createFd(path, flags?)` / `releaseFd(fd)`：创建/释放带插件标记的 fd（供自定义 `open` 及后续 `read/write/close` 使用）
-- `baseWatch` / `baseWatchFile` / `baseUnwatchFile`
-- `baseCreateReadStream` / `baseCreateWriteStream`
+### 工厂与上下文契约
 
-可覆盖的方法包含所有 Promise 版 fs API（如 `readFile/writeFile/rename/readdir/rm/stat/open/read/write/close` 等）以及工具方法 `watch/watchFile/unwatchFile/createReadStream/createWriteStream`。未实现的接口自动走内置实现。
+`FsPluginFactory<TOptions>` 签名：
 
-注意：若一次调用涉及的多个路径匹配到不同插件，会抛出异常以避免行为不一致；请保持拦截正则互斥。
+```ts
+type FsPluginFactory<TOptions> = (
+  options: TOptions,
+  ctx: FsPluginContext
+) => FsPluginInstance;
+```
 
-### 最小示例：虚拟云盘只读插件
+`FsPluginContext` 提供以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `baseFs` | `FsPromises` | 内置 IndexedDB 版 `fs.promises`，用于委托未实现的操作 |
+| `Buffer` | `BufferPolyfill` | 与本库导出的 `Buffer` 相同，用于数据转换 |
+| `createFd(path, flags?)` | `(path, flags?) => Promise<number>` | 创建带插件标记的文件描述符 |
+| `releaseFd(fd)` | `(fd: number) => Promise<void>` | 释放文件描述符 |
+| `baseWatch` | `(path, listener) => Watcher` | 内置 watch 实现 |
+| `baseWatchFile` | `(path, listener) => void` | 内置 watchFile 实现 |
+| `baseUnwatchFile` | `(path) => void` | 内置 unwatchFile 实现 |
+| `baseCreateReadStream` | `(path, options?) => ReadStream` | 内置流实现 |
+| `baseCreateWriteStream` | `(path, options?) => WriteStream` | 内置流实现 |
+
+`FsPluginInstance` 结构：
+
+```ts
+interface FsPluginInstance {
+  match: RegExp;          // 拦截路径正则，如 /^\/cloud(\/|$)/
+  handlers: Partial<FsHandlers>;  // 可选实现的方法集合
+}
+```
+
+`handlers` 中未实现的 API 自动走 `ctx.baseFs`，因此只需实现想要自定义的部分。
+
+### 路径匹配与冲突规则
+
+`match` 为 `RegExp`，建议格式为 `^\/前缀(\/|$)`，确保：
+- `^` 锚定开头，防止误匹配其他路径
+- `(\/|$)` 结尾确保精确匹配该路径本身，或其子路径
+
+```ts
+match: /^\/cloud(\/|$)/  // 匹配 /cloud 和 /cloud/xxx
+```
+
+**冲突规则**：一次 fs 调用涉及的多个路径如果匹配到不同插件，会抛出异常以避免行为不一致。因此：
+- **保持拦截正则互斥**，不要让不同插件的 `match` 产生重叠
+- 若需要组合多个后端，在同一插件内部做分发
+
+### IndexedDB 存储插件
+
+本库提供了一个可选的 `indexeddb` 插件，开箱即用地将所有路径映射到内置 IndexedDB 存储（与默认行为完全一致）。这在你需要统一通过插件机制管理所有存储后端时有用。
+
+```ts
+import {
+  registerPlugin,
+  usePlugin,
+  createIndexedDBStoragePlugin,
+} from '@system-ui-js/file-system-browser';
+
+registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+usePlugin('indexeddb', {});
+// 之后所有 fs 操作走默认 IndexedDB 实现
+```
+
+注意：主包不会自动挂载 IndexedDB 插件。你需要在应用初始化时显式注册并启用它。此插件将所有绝对 POSIX 路径映射到内置 IndexedDB 存储。
+
+### 自定义插件示例
+
+**最小示例：虚拟云盘只读插件**
 
 ```ts
 import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
@@ -248,7 +310,7 @@ import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser
 type CloudOpts = { greeting?: string };
 
 registerPlugin<CloudOpts>('cloud', (options, ctx) => ({
-  match: /^\\/cloud(\\/|$)/,
+  match: /^\/cloud(\/|$)/,
   handlers: {
     async readFile(path: string) {
       return ctx.Buffer.fromString(
@@ -261,8 +323,96 @@ registerPlugin<CloudOpts>('cloud', (options, ctx) => ({
 usePlugin('cloud', { greeting: 'hi' });
 
 const content = await fs.promises.readFile('/cloud/demo.txt', 'utf8');
-console.log(content);
+console.log(content); // "hi, reading /cloud/demo.txt"
 ```
+
+**完整读写插件示例**
+
+下面实现一个读写都支持的插件，演示如何委托未实现的操作给 `baseFs`：
+
+```ts
+import fs, { registerPlugin, usePlugin, type FsPluginContext, type FsHandlers } from '@system-ui-js/file-system-browser';
+
+type MyFSOpts = { root: string };
+
+const myFSFactory = (options: MyFSOpts, ctx: FsPluginContext): FsHandlers => ({
+  match: /^\/myfs(\/|$)/,
+  handlers: {
+    async readFile(path: string, encoding?: BufferEncoding) {
+      // 自定义实现：假设从远程获取
+      const data = await fetchFromRemote(options.root + path);
+      return ctx.Buffer.from(data);
+    },
+    async writeFile(path: string, data: Uint8Array, encoding?: BufferEncoding) {
+      // 自定义实现
+      await uploadToRemote(options.root + path, data);
+    },
+    async readdir(path: string, opts?: { withFileTypes?: boolean }) {
+      // 委托给内置实现（如果插件只实现部分 API）
+      return ctx.baseFs.readdir(path, opts);
+    },
+    // 可按需继续实现 stat/mkdir/rm/rename 等
+  },
+});
+
+registerPlugin<MyFSOpts>('myfs', myFSFactory);
+usePlugin('myfs', { root: 'https://my-storage.example.com' });
+```
+
+实现插件时注意：
+- `ctx.Buffer` 与 Node.js 的 `Buffer` API 兼容（`fromString`/`from`/`alloc` 等）
+- 文件描述符操作需要 `createFd`/`releaseFd` 配合，参考 Demo 中的 `open`/`read`/`write`/`close` 实现
+- `watch`/`createReadStream` 等流式 API 类似，按需实现或回退到 `baseWatch`/`baseCreateReadStream`
+
+### 测试与调试
+
+插件代码推荐在隔离环境中测试，确保路径匹配、handler 调用、错误处理都符合预期：
+
+```ts
+import { registerPlugin, usePlugin, unregisterPlugin } from '@system-ui-js/file-system-browser';
+// Vitest 示例（使用 fake-indexeddb 提供浏览器环境）
+
+// 注册测试插件
+registerPlugin('test', (opts, ctx) => ({
+  match: /^\/test-plugin(\/|$)/,
+  handlers: {
+    async readFile() {
+      return ctx.Buffer.fromString('mock content');
+    },
+  },
+}));
+
+usePlugin('test');
+
+// 验证
+const content = await fs.promises.readFile('/test-plugin/file.txt', 'utf8');
+expect(content).toBe('mock content');
+
+// 清理
+unregisterPlugin('test');
+```
+
+常见测试场景：
+- 插件注册/启用/注销生命周期
+- `match` 正则对各类路径的匹配行为
+- handler 返回值类型是否正确（`Uint8Array`）
+- 未实现 API 是否正确回退到 `baseFs`
+- 多插件冲突场景是否抛出异常
+- 错误情况（路径不匹配、插件未注册等）
+
+### 迁移说明
+
+本库的插件系统设计为向后兼容：
+- 现有数据（文件、目录、链接等）保留在 `FileSystemDB` 中，不受插件影响
+- 插件仅决定路径的读写逻辑，不迁移底层数据格式
+- 若从无插件切换到有插件场景，原有数据依然可通过默认路径访问
+
+### 排序持久化说明
+
+排序使用独立的 `FileSystemSortDB`，与插件系统完全解耦：
+- 插件启用/禁用不会影响已有的排序配置
+- 排序数据存储在不同 IndexedDB 表，不污染插件的数据空间
+- 插件可自行读写 `sorter` 来管理排序状态（如需要）
 
 ## 目录排序
 
@@ -323,11 +473,11 @@ yarn lint
 
 # 代码格式化
 yarn format
-```
 
-端到端测试（Playwright）：
+# 单元测试
+yarn test:unit -- --run
 
-```bash
+# 端到端测试（Playwright）
 yarn test:e2e
 ```
 

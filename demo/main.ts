@@ -2,6 +2,9 @@ import fs, {
   Dirent,
   SortMode,
   SortOrder,
+  createIndexedDBStoragePlugin,
+  registerPlugin,
+  usePlugin,
 } from '@system-ui-js/file-system-browser';
 import { sorter } from '@system-ui-js/file-system-browser';
 
@@ -101,11 +104,20 @@ let currentSortMode: 'name' | 'createdAt' | 'modifiedAt' | 'size' | 'manual' =
   'name';
 let currentSortOrder: 'asc' | 'desc' = 'asc';
 
-// Initialize (fs 会在首次调用时自动初始化)
+// Initialize: mount IndexedDB plugin before first fs operation
 async function init() {
   try {
+    if (!registerPlugin || !usePlugin || !createIndexedDBStoragePlugin) {
+      throw new Error('Plugin APIs not available');
+    }
+    // Idempotent mount for HMR
+    try {
+      registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+    } catch {
+      // ignore duplicate registration
+    }
+    usePlugin('indexeddb', {});
     await refreshFileList();
-    // 初次加载刷新存储信息
     await refreshStorageInfo();
   } catch (error) {
     console.error('Failed to initialize:', error);

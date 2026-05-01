@@ -1035,8 +1035,7 @@ function runWithPluginPromise(
   if (typeof handler === 'function') {
     return (handler as (...a: unknown[]) => unknown)(...args);
   }
-  const base = corePromises[method] as (...a: unknown[]) => unknown;
-  return base(...args);
+  throw new Error('No storage plugin mounted for this path');
 }
 
 type UtilityMethod = keyof UtilityHandlers;
@@ -1053,17 +1052,7 @@ function runWithPluginUtility<K extends UtilityMethod>(
   if (handler) {
     return handler(...args);
   }
-  const baseMap: UtilityHandlers = {
-    watch: baseWatch,
-    watchFile: baseWatchFile,
-    unwatchFile: baseUnwatchFile,
-    createReadStream: baseCreateReadStream,
-    createWriteStream: baseCreateWriteStream,
-  };
-  const base = baseMap[method] as unknown as (
-    ...a: Parameters<UtilityHandlers[K]>
-  ) => ReturnType<UtilityHandlers[K]>;
-  return base(...args);
+  throw new Error('No storage plugin mounted for this path');
 }
 
 type ReaddirOptionsWithTypes =
@@ -1189,9 +1178,10 @@ const promises: CorePromises = {
   open: async (path: string, flags: string, mode?: number) => {
     const plugin = resolvePluginFromPaths([path]);
     const handler = plugin?.handlers.open as CorePromises['open'] | undefined;
-    const res = handler
-      ? await handler(path, flags, mode)
-      : await corePromises.open(path, flags, mode);
+    if (!handler) {
+      throw new Error('No storage plugin mounted for this path');
+    }
+    const res = await handler(path, flags, mode);
     const existed = fdTable.get(res.fd);
     if (plugin) {
       if (existed) {

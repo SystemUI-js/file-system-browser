@@ -12,3 +12,5 @@ export type { FsPlugin, FsPluginFactory, FsPluginContext } from './fs';
 export type { FileEntry } from './db';
 export { sorter } from './sort';
 export type { DirSortConfig, SortMode, SortOrder, IconPosition } from './sort';
+export { createIndexedDBStoragePlugin } from './plugins/indexeddb';
+export type { IndexedDBStoragePluginOptions } from './plugins/indexeddb';
