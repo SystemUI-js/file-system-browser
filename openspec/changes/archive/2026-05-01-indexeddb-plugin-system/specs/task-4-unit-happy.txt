@@ -1,0 +1,15 @@
+yarn run v1.22.22
+(node:1517717) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+warning From Yarn 1.0 onwards, scripts don't require "--" for options to be forwarded. In a future version, any explicit "--" will be forwarded as-is to the scripts.
+$ vitest --run
+
+ RUN  v4.1.5 /home/zhangxiao/frontend/worktrees/file-system-browser/feature-plugin-system
+
+
+ Test Files  2 passed (2)
+      Tests  21 passed (21)
+   Start at  01:08:51
+   Duration  814ms (transform 119ms, setup 56ms, import 122ms, tests 25ms, environment 1.09s)
+
+Done in 1.18s.
