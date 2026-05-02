@@ -25,6 +25,16 @@ yarn dev
 
 然后打开 `http://localhost:9973`。
 
+### 演示中的挂载点
+
+Demo 启动时**不会自动挂载任何存储插件**。你需要在界面中手动选择插件类型并输入挂载路径：
+
+- **内存**：选择 `memory` 插件，输入路径如 `/memory`，点击“挂载”。数据仅保存在当前页面会话的内存中，刷新页面后会丢失。
+- **IndexedDB**：选择 `indexeddb` 插件，输入路径如 `/indexeddb`，点击“挂载”。数据持久化在浏览器 IndexedDB 中。
+- **WebDAV**：选择 `webdav` 插件，输入路径如 `/webdav`，填写服务器 URL 等信息后点击“挂载”。WebDAV 配置仅保存在内存中，刷新页面后需重新配置。
+
+也支持嵌套挂载，例如先在 `/memory` 挂载内存插件，再在其子路径 `/memory/nested` 挂载另一个内存插件，两个路径的数据相互隔离。
+
 构建 Demo（用于静态部署）：
 
 ```bash
@@ -206,7 +216,25 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 ### 插件系统概览
 本库提供可插拔的"路径拦截"机制，便于挂载 WebDAV/各类网盘/SMB 或自定义虚拟文件。插件代码可独立于本仓库维护。
 
-核心思想：每个插件声明一个 `match` 正则表达式，匹配到的路径由该插件处理，未实现的 API 自动回退到内置 IndexedDB 实现。插件不修改内置数据库，只负责特定路径前缀下的读写逻辑。
+核心思想：每个插件可以声明一个 `mountPath`（挂载路径）或 `match`（正则表达式），匹配到的路径由该插件处理。插件不修改内置数据库，只负责特定路径前缀下的读写逻辑。如果某个已匹配插件没有实现特定的 API，调用将抛出错误，不会自动回退到其他存储后端。
+
+#### `mountPath` 与虚拟根
+推荐使用 `mountPath` 来指定插件的挂载点，例如 `mountPath: '/webdav'` 表示该插件负责 `/webdav` 及其子路径。系统使用**最长前缀匹配**原则：当多个插件可能匹配同一路径时，路径前缀最长的插件优先。
+
+```ts
+usePlugin('webdav', { mountPath: '/webdav', baseUrl: 'https://example.com/dav' });
+usePlugin('indexeddb', { mountPath: '/indexeddb' });
+```
+
+- `/webdav/docs` → 由 WebDAV 插件处理
+- `/indexeddb/docs` → 由 IndexedDB 插件处理
+- `/other` → 回退到默认 IndexedDB 实现（或 catch-all 插件）
+
+#### 跨挂载点操作限制
+涉及多个路径的操作（`rename`、`copyFile`、`link`）要求源路径和目标路径必须**在同一个挂载点**内。如果跨挂载点操作，会抛出异常。
+
+#### 向后兼容：正则匹配
+旧版插件使用 `match` 正则表达式声明拦截范围，仍然完全支持。`mountPath` 是更简洁的替代方案。 catch-all 插件（如 `match: /^\//`）可以继续正常工作。
 
 ### 为什么插件是可选的
 主包不会自动挂载任何存储插件——你需要显式注册并启用插件后才生效。这避免了隐式依赖，也让你完全掌控要引入哪些存储后端。按需加载也便于 tree-shaking。
@@ -270,7 +298,18 @@ interface FsPluginInstance {
 
 ### 路径匹配与冲突规则
 
-`match` 为 `RegExp`，建议格式为 `^\/前缀(\/|$)`，确保：
+#### `mountPath` 匹配（推荐）
+使用 `mountPath` 时，插件会自动拦截该路径及其所有子路径：
+
+```ts
+usePlugin('cloud', { mountPath: '/cloud' });
+// 匹配 /cloud 和 /cloud/xxx
+```
+
+系统按**最长前缀优先**原则选择插件。例如 `/cloud/docs` 会优先匹配 `mountPath: '/cloud/docs'` 而非 `mountPath: '/cloud'`。
+
+#### `match` 正则匹配（向后兼容）
+旧版插件使用 `match` 正则表达式声明拦截范围，仍然完全支持。建议格式为 `^\/前缀(\/|$)`，确保：
 - `^` 锚定开头，防止误匹配其他路径
 - `(\/|$)` 结尾确保精确匹配该路径本身，或其子路径
 
@@ -279,12 +318,14 @@ match: /^\/cloud(\/|$)/  // 匹配 /cloud 和 /cloud/xxx
 ```
 
 **冲突规则**：一次 fs 调用涉及的多个路径如果匹配到不同插件，会抛出异常以避免行为不一致。因此：
-- **保持拦截正则互斥**，不要让不同插件的 `match` 产生重叠
+- 不同插件的挂载点（`mountPath` 或 `match`）应保持互斥，避免重叠
 - 若需要组合多个后端，在同一插件内部做分发
 
 ### IndexedDB 存储插件
 
-本库提供了一个可选的 `indexeddb` 插件，开箱即用地将所有路径映射到内置 IndexedDB 存储（与默认行为完全一致）。这在你需要统一通过插件机制管理所有存储后端时有用。
+本库提供了一个可选的 `indexeddb` 插件，开箱即用地将路径映射到内置 IndexedDB 存储（与默认行为完全一致）。这在你需要统一通过插件机制管理所有存储后端时有用。
+
+#### 方式一：Catch-all 模式（传统方式，兼容旧代码）
 
 ```ts
 import {
@@ -298,7 +339,83 @@ usePlugin('indexeddb', {});
 // 之后所有 fs 操作走默认 IndexedDB 实现
 ```
 
-注意：主包不会自动挂载 IndexedDB 插件。你需要在应用初始化时显式注册并启用它。此插件将所有绝对 POSIX 路径映射到内置 IndexedDB 存储。
+#### 方式二：挂载到指定路径（推荐用于多后端共存）
+
+```ts
+import {
+  registerPlugin,
+  usePlugin,
+  createIndexedDBStoragePlugin,
+} from '@system-ui-js/file-system-browser';
+
+registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+usePlugin('indexeddb', { mountPath: '/indexeddb' });
+// 只有 /indexeddb 及其子路径走此插件，其他路径可挂载其他后端
+```
+
+注意：主包不会自动挂载 IndexedDB 插件。你需要在应用初始化时显式注册并启用它。
+
+### 内存存储插件
+
+本库提供内存插件，可将数据临时存储在页面内存中（非持久化）。适用于临时文件操作、测试场景或不需要持久化的数据。
+
+```ts
+import {
+  registerPlugin,
+  usePlugin,
+  createMemoryStoragePlugin,
+} from '@system-ui-js/file-system-browser';
+
+registerPlugin('memory', createMemoryStoragePlugin);
+usePlugin('memory', { mountPath: '/memory' });
+
+await fs.promises.writeFile('/memory/temp.txt', 'hello', 'utf8');
+const content = await fs.promises.readFile('/memory/temp.txt', 'utf8');
+console.log(content); // "hello"
+```
+
+注意：内存插件的数据仅保存在当前页面会话中。刷新页面、关闭标签页或注销插件后，数据会丢失。如需持久化，请使用 IndexedDB 插件。
+
+### WebDAV 存储插件
+
+本库提供 WebDAV 插件，可将远程 WebDAV 服务器挂载到本地路径。
+
+```ts
+import {
+  registerPlugin,
+  usePlugin,
+  createWebDAVStoragePlugin,
+} from '@system-ui-js/file-system-browser';
+
+registerPlugin('webdav', createWebDAVStoragePlugin);
+usePlugin('webdav', {
+  mountPath: '/webdav',
+  baseUrl: 'https://example.com/dav',
+  // 认证信息通过 username/password 或 token 传入
+  // headers: { 'X-Custom-Header': 'value' },
+});
+```
+
+`WebDAVStoragePluginOptions`：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `baseUrl` | `string` | WebDAV 服务器地址（必填） |
+| `mountPath` | `string` | 本地挂载路径，默认 `/webdav` |
+| `remoteRoot` | `string` | 远程根路径，默认 `/` |
+| `username` | `string` | 基本认证用户名 |
+| `password` | `string` | 基本认证密码 |
+| `token` | `string` | Bearer Token |
+| `headers` | `Record<string, string>` | 自定义请求头 |
+| `fetch` | `typeof fetch` | 自定义 fetch 实现 |
+
+#### 重要限制
+
+- **CORS**：WebDAV 请求受浏览器同源策略限制。CORS 必须在**服务器端**配置，无法通过客户端代码绕过。如果服务器未配置 CORS，浏览器会拦截请求。
+- **不支持的 API**：浏览器环境下无法使用 `watch`、`watchFile`、`unwatchFile`、`createReadStream`、`createWriteStream`，也不支持 `symlink`、`readlink`、`link`（硬链接）、`nlink`、文件描述符（`open/read/write/close`）。
+- **内存限制**：文件内容在传输过程中会暂存于内存，超大文件可能导致内存不足。
+
+安全提示：不要在代码或 localStorage 中硬编码密码。建议通过安全方式获取凭据（如用户输入、OAuth 等）。
 
 ### 自定义插件示例
 

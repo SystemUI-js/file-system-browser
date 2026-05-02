@@ -3,8 +3,11 @@ import fs, {
   SortMode,
   SortOrder,
   createIndexedDBStoragePlugin,
+  createMemoryStoragePlugin,
+  createWebDAVStoragePlugin,
   registerPlugin,
   usePlugin,
+  unregisterPlugin,
 } from '@system-ui-js/file-system-browser';
 import { sorter } from '@system-ui-js/file-system-browser';
 
@@ -33,8 +36,52 @@ type UIItem = {
   linkTarget?: string;
   nlink?: number;
 };
+
+type WebDAVDemoConfig = {
+  baseUrl: string;
+  username?: string;
+  password?: string;
+  token?: string;
+  remoteRoot?: string;
+};
+
+type WebDAVDemoConfigStore = {
+  load(): WebDAVDemoConfig | null;
+  save(config: WebDAVDemoConfig): void;
+  clear(): void;
+};
+
+let memoryWebDAVConfig: WebDAVDemoConfig | null = null;
+const memoryWebDAVConfigStore: WebDAVDemoConfigStore = {
+  load() {
+    return memoryWebDAVConfig;
+  },
+  save(config) {
+    memoryWebDAVConfig = config;
+  },
+  clear() {
+    memoryWebDAVConfig = null;
+  },
+};
+
+let webDAVConfigStore: WebDAVDemoConfigStore = memoryWebDAVConfigStore;
+
+(window as any).setWebDAVConfigStore = (store: WebDAVDemoConfigStore) => {
+  webDAVConfigStore = store;
+};
+(window as any).saveWebDAVConfig = (config: WebDAVDemoConfig) => {
+  webDAVConfigStore.save(config);
+};
+(window as any).loadWebDAVConfig = () => {
+  return webDAVConfigStore.load();
+};
+(window as any).clearWebDAVConfig = () => {
+  webDAVConfigStore.clear();
+};
+
 let currentPath = '/';
 let clipboard: { type: 'copy' | 'cut'; path: string } | null = null;
+const mountedPaths = new Map<string, string>();
 
 // DOM elements
 const fileInput = document.getElementById('fileInput') as HTMLInputElement;
@@ -97,6 +144,45 @@ const sortModeSel = document.getElementById(
 const sortOrderSel = document.getElementById(
   'sortOrder'
 ) as HTMLSelectElement | null;
+const webdavUrlInput = document.getElementById(
+  'webdavUrl'
+) as HTMLInputElement | null;
+const webdavUsernameInput = document.getElementById(
+  'webdavUsername'
+) as HTMLInputElement | null;
+const webdavPasswordInput = document.getElementById(
+  'webdavPassword'
+) as HTMLInputElement | null;
+const webdavTokenInput = document.getElementById(
+  'webdavToken'
+) as HTMLInputElement | null;
+const webdavRemoteRootInput = document.getElementById(
+  'webdavRemoteRoot'
+) as HTMLInputElement | null;
+const webdavConnectBtn = document.getElementById(
+  'webdavConnectBtn'
+) as HTMLButtonElement | null;
+const webdavDisconnectBtn = document.getElementById(
+  'webdavDisconnectBtn'
+) as HTMLButtonElement | null;
+const webdavStatus = document.getElementById(
+  'webdavStatus'
+) as HTMLSpanElement | null;
+const mountPluginSelect = document.getElementById(
+  'mountPluginSelect'
+) as HTMLSelectElement | null;
+const mountPathInput = document.getElementById(
+  'mountPathInput'
+) as HTMLInputElement | null;
+const mountBtn = document.getElementById(
+  'mountBtn'
+) as HTMLButtonElement | null;
+const mountStatus = document.getElementById(
+  'mountStatus'
+) as HTMLSpanElement | null;
+const webdavMountFields = document.getElementById(
+  'webdavMountFields'
+) as HTMLDivElement | null;
 
 let searchSeq = 0; // 防止竞态：仅展示最后一次搜索结果
 let lastRenderedFiles: UIItem[] = [];
@@ -104,19 +190,33 @@ let currentSortMode: 'name' | 'createdAt' | 'modifiedAt' | 'size' | 'manual' =
   'name';
 let currentSortOrder: 'asc' | 'desc' = 'asc';
 
-// Initialize: mount IndexedDB plugin before first fs operation
 async function init() {
   try {
-    if (!registerPlugin || !usePlugin || !createIndexedDBStoragePlugin) {
+    if (
+      !registerPlugin ||
+      !usePlugin ||
+      !unregisterPlugin ||
+      !createIndexedDBStoragePlugin ||
+      !createMemoryStoragePlugin ||
+      !createWebDAVStoragePlugin
+    ) {
       throw new Error('Plugin APIs not available');
     }
-    // Idempotent mount for HMR
+    try {
+      registerPlugin('memory', createMemoryStoragePlugin);
+    } catch {
+      // ignore duplicate registration
+    }
     try {
       registerPlugin('indexeddb', createIndexedDBStoragePlugin);
     } catch {
       // ignore duplicate registration
     }
-    usePlugin('indexeddb', {});
+    try {
+      registerPlugin('webdav', createWebDAVStoragePlugin);
+    } catch {
+      // ignore duplicate registration
+    }
     await refreshFileList();
     await refreshStorageInfo();
   } catch (error) {
@@ -125,7 +225,13 @@ async function init() {
   }
 }
 
-// Upload files
+function resolveWritePath(name: string): string {
+  if (currentPath === '/') {
+    return `/${name}`;
+  }
+  return `${currentPath}/${name}`;
+}
+
 uploadBtn.addEventListener('click', async () => {
   const files = fileInput.files;
   if (!files || files.length === 0) {
@@ -155,18 +261,15 @@ uploadBtn.addEventListener('click', async () => {
     const failed: { name: string; reason: string }[] = [];
 
     for (const file of Array.from(files)) {
-      // 同名禁止上传
       if (existedNames.has(file.name)) {
         skipDuplicates.push(file.name);
         continue;
       }
       try {
-        const path =
-          currentPath === '/' ? `/${file.name}` : `${currentPath}/${file.name}`;
+        const path = resolveWritePath(file.name);
         const buf = new Uint8Array(await file.arrayBuffer());
         await fs.promises.writeFile(path, buf);
         successCount++;
-        // 上传成功后将其加入集合，避免同一批次多个文件重名（极少见）
         existedNames.add(file.name);
       } catch (e) {
         failed.push({ name: file.name, reason: (e as Error).message });
@@ -202,8 +305,7 @@ createFolderBtn.addEventListener('click', async () => {
   if (!folderName) return;
 
   try {
-    const path =
-      currentPath === '/' ? `/${folderName}` : `${currentPath}/${folderName}`;
+    const path = resolveWritePath(folderName);
     await fs.promises.mkdir(path, { recursive: true });
     await refreshFileList();
     try {
@@ -224,7 +326,7 @@ createSymlinkBtn?.addEventListener('click', async () => {
   if (!target) return;
   const name = prompt('请输入软链接名称：');
   if (!name) return;
-  const linkPath = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+  const linkPath = resolveWritePath(name);
   try {
     await fs.promises.symlink(target, linkPath);
     await refreshFileList();
@@ -246,7 +348,7 @@ createHardlinkBtn?.addEventListener('click', async () => {
   if (!src) return;
   const name = prompt('请输入硬链接名称：');
   if (!name) return;
-  const dest = currentPath === '/' ? `/${name}` : `${currentPath}/${name}`;
+  const dest = resolveWritePath(name);
   try {
     await fs.promises.link(src, dest);
     await refreshFileList();
@@ -264,25 +366,33 @@ createHardlinkBtn?.addEventListener('click', async () => {
 
 // Clear all files
 clearAllBtn.addEventListener('click', async () => {
-  if (!confirm('确定要清空所有文件吗？此操作不可撤销！')) return;
+  if (!confirm('确定要清空当前目录下所有文件吗？此操作不可撤销！')) return;
 
   try {
-    // 清空根目录下的所有内容
-    const dirents = await fs.promises.readdir('/', {
+    if (currentPath === '/') {
+      alert('根目录下没有文件可清空');
+      return;
+    }
+    const dirents = await fs.promises.readdir(currentPath, {
       withFileTypes: true,
     });
-    for (const name of Array.isArray(dirents) ? dirents : []) {
-      const p = name && typeof name.name === 'string' ? `/${name.name}` : '/';
-      if (p !== '/') {
-        await fs.promises.rm(p, { recursive: true, force: true });
+    for (const d of Array.isArray(dirents) ? dirents : []) {
+      const name = typeof d === 'string' ? d : d.name;
+      if (name) {
+        await fs.promises.rm(
+          currentPath === '/' ? `/${name}` : `${currentPath}/${name}`,
+          {
+            recursive: true,
+            force: true,
+          }
+        );
       }
     }
-    currentPath = '/';
     clipboard = null;
     updateClipboardUI();
     await refreshFileList();
     try {
-      await sorter.clear('/');
+      await sorter.clear(currentPath);
     } catch (e) {
       void 0;
     }
@@ -299,8 +409,7 @@ pasteBtn.addEventListener('click', async () => {
 
   try {
     const fileName = clipboard.path.split('/').pop() || '';
-    const destPath =
-      currentPath === '/' ? `/${fileName}` : `${currentPath}/${fileName}`;
+    const destPath = resolveWritePath(fileName);
 
     if (clipboard.type === 'copy') {
       await copyPath(clipboard.path, destPath);
@@ -335,6 +444,8 @@ async function refreshFileList() {
   try {
     const list = await listUIItems(currentPath);
     currentPathSpan.textContent = currentPath;
+    uploadBtn.textContent =
+      currentPath === '/' ? '上传到当前目录' : '上传到根目录';
     // 同步排序配置到控件
     try {
       const cfg = await sorter.getConfig(currentPath);
@@ -350,7 +461,23 @@ async function refreshFileList() {
     await refreshStorageInfo();
   } catch (error) {
     console.error('Refresh failed:', error);
-    fileList.innerHTML = '<div class="empty-state">❌ 加载失败</div>';
+    if (
+      error instanceof Error &&
+      error.message === 'No storage plugin mounted for this path'
+    ) {
+      if (currentPath !== '/') {
+        currentPath = '/';
+        currentPathSpan.textContent = currentPath;
+      }
+      try {
+        const list = await listUIItems('/');
+        renderFileList(list, false);
+      } catch {
+        fileList.innerHTML = '';
+      }
+    } else {
+      fileList.innerHTML = '<div class="empty-state">❌ 加载失败</div>';
+    }
   }
 }
 
@@ -482,9 +609,10 @@ function renderFileList(files: UIItem[], manualMode = false) {
       const metaExtra = file.type === 'symlink' ? '链接' : '';
       const safePath = escapeHtml(file.path);
       const safeName = escapeHtml(file.name);
+      const isMountRoot = mountedPaths.has(file.path);
 
       return `
-        <div class="file-item" data-path="${file.path}">
+        <div class="file-item" data-path="${safePath}">
           <span class="file-icon">${icon}</span>
           <div class="file-info">
             <div class="file-name" onclick="handleFileClick('${safePath}', '${file.type}')">${escapeHtml(displayName)}</div>
@@ -493,11 +621,11 @@ function renderFileList(files: UIItem[], manualMode = false) {
           <div class="file-actions">
             ${file.type === 'file' ? `<button class="btn btn-primary btn-small" onclick="downloadFile('${safePath}')">下载</button>` : ''}
             <button class="btn btn-secondary btn-small" onclick="showDetails('${safePath}')">详情</button>
-            <button class="btn btn-secondary btn-small" onclick="copyFile('${safePath}')">复制</button>
-            <button class="btn btn-secondary btn-small" onclick="cutFile('${safePath}')">剪切</button>
-            <button class="btn btn-danger btn-small" onclick="deleteFile('${safePath}')">删除</button>
+            ${!isMountRoot ? `<button class="btn btn-secondary btn-small" onclick="copyFile('${safePath}')">复制</button>` : ''}
+            ${!isMountRoot ? `<button class="btn btn-secondary btn-small" onclick="cutFile('${safePath}')">剪切</button>` : ''}
+            ${!isMountRoot ? `<button class="btn btn-danger btn-small" onclick="deleteFile('${safePath}')">删除</button>` : ''}
             ${
-              manualMode
+              manualMode && !isMountRoot
                 ? `
               <span class="divider" style="margin:0 4px; color:#999">|</span>
               <button class="btn btn-secondary btn-small" onclick="moveUp('${safeName}')">上移</button>
@@ -584,6 +712,134 @@ if (sortOrderSel) {
       console.warn('setConfig(order) failed', e);
     }
     await refreshFileList();
+  });
+}
+
+if (mountPluginSelect && webdavMountFields) {
+  mountPluginSelect.addEventListener('change', () => {
+    webdavMountFields.style.display =
+      mountPluginSelect.value === 'webdav' ? 'block' : 'none';
+  });
+}
+
+function resolveMountPath(input: string): { path: string | null; error: string | null } {
+  const trimmed = input.trim();
+  if (trimmed === '') return { path: null, error: '挂载路径不能为空' };
+  let resolved: string;
+  if (trimmed.startsWith('/')) {
+    resolved = trimmed;
+  } else {
+    resolved = currentPath === '/' ? `/${trimmed}` : `${currentPath}/${trimmed}`;
+  }
+  if (resolved !== '/' && resolved.endsWith('/')) {
+    resolved = resolved.slice(0, -1);
+  }
+  if (resolved.includes('//')) return { path: null, error: '挂载路径不能包含 // ' };
+  const segments = resolved.split('/').filter(Boolean);
+  for (const seg of segments) {
+    if (seg === '.' || seg === '..') return { path: null, error: '挂载路径不能包含 . 或 .. 段' };
+  }
+  if (resolved === '/') return { path: null, error: '不能挂载到根目录 /' };
+  return { path: resolved, error: null };
+}
+
+if (mountBtn) {
+  mountBtn.addEventListener('click', async () => {
+    const selectedPlugin = mountPluginSelect?.value || 'memory';
+    const { path: mountPath, error } = resolveMountPath(mountPathInput?.value || '');
+    if (error || !mountPath) {
+      if (mountStatus) mountStatus.textContent = error;
+      return;
+    }
+
+    if (selectedPlugin === 'webdav') {
+      const baseUrl = webdavUrlInput?.value.trim() || '';
+      if (!baseUrl) {
+        if (mountStatus) mountStatus.textContent = '错误：请输入 WebDAV URL';
+        return;
+      }
+      try {
+        new URL(baseUrl);
+      } catch {
+        if (mountStatus) mountStatus.textContent = '错误：无效的 URL';
+        return;
+      }
+      const config: WebDAVDemoConfig = {
+        baseUrl,
+        username: webdavUsernameInput?.value.trim() || undefined,
+        password: webdavPasswordInput?.value || undefined,
+        token: webdavTokenInput?.value.trim() || undefined,
+        remoteRoot: webdavRemoteRootInput?.value.trim() || undefined,
+      };
+      try {
+        usePlugin('webdav', { mountPath, ...config });
+        await fs.promises.readdir(mountPath);
+        webDAVConfigStore.save(config);
+        mountedPaths.set(mountPath, 'webdav');
+        if (mountStatus)
+          mountStatus.textContent = `已挂载: webdav -> ${mountPath}`;
+        if (webdavStatus) webdavStatus.textContent = '已连接';
+        currentPath = mountPath;
+        await refreshFileList();
+        await refreshStorageInfo();
+      } catch (e) {
+        try {
+          unregisterPlugin('webdav');
+        } catch {
+          /* ignore */
+        }
+        if (mountStatus)
+          mountStatus.textContent = `挂载失败: ${(e as Error).message}`;
+        if (webdavStatus)
+          webdavStatus.textContent = `连接失败: ${(e as Error).message}`;
+      }
+      return;
+    }
+
+    try {
+      usePlugin(selectedPlugin, { mountPath });
+      mountedPaths.set(mountPath, selectedPlugin);
+      if (mountStatus)
+        mountStatus.textContent = `已挂载: ${selectedPlugin} -> ${mountPath}`;
+      currentPath = mountPath;
+      await refreshFileList();
+      await refreshStorageInfo();
+    } catch (e) {
+      if (mountStatus)
+        mountStatus.textContent = `挂载失败: ${(e as Error).message}`;
+    }
+  });
+}
+
+if (webdavDisconnectBtn) {
+  webdavDisconnectBtn.addEventListener('click', async () => {
+    try {
+      const entriesToRemove: Array<{ path: string; plugin: string }> = [];
+      mountedPaths.forEach((plugin, path) => {
+        if (currentPath === path || currentPath.startsWith(`${path}/`)) {
+          entriesToRemove.push({ path, plugin });
+        }
+      });
+      if (entriesToRemove.length === 0) {
+        if (webdavStatus) webdavStatus.textContent = '当前路径下无挂载点';
+        return;
+      }
+      for (const { plugin, path } of entriesToRemove) {
+        try {
+          unregisterPlugin(plugin);
+        } catch {
+          /* ignore if already unregistered */
+        }
+        mountedPaths.delete(path);
+      }
+      webDAVConfigStore.clear();
+      if (webdavStatus) webdavStatus.textContent = '未连接';
+      currentPath = '/';
+      await refreshFileList();
+    } catch (e) {
+      if (webdavStatus)
+        webdavStatus.textContent = `断开失败: ${(e as Error).message}`;
+    }
   });
 }
 
@@ -778,6 +1034,9 @@ backButton.addEventListener('click', async () => {
   await refreshFileList();
 });
 document.querySelector('.current-path')?.before(backButton);
+
+(window as any).fs = fs;
+(window as any).refreshFileList = refreshFileList;
 
 // Initialize app
 init();

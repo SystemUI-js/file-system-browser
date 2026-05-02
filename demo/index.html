@@ -85,6 +85,48 @@
           <div>空间占用：<strong id="usedSpace">-</strong> / <strong id="totalSpace">-</strong></div>
         </section>
 
+        <section class="mount-section">
+          <h2>挂载存储</h2>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <label>插件:</label>
+            <select id="mountPluginSelect">
+              <option value="memory">内存</option>
+              <option value="indexeddb">IndexedDB</option>
+              <option value="webdav">WebDAV</option>
+            </select>
+            <label>挂载路径:</label>
+            <input id="mountPathInput" type="text" placeholder="/memory 或 nested（相对当前路径）" />
+            <button id="mountBtn" class="btn btn-primary">挂载</button>
+          </div>
+          <span id="mountStatus" style="color:#666"></span>
+          <div id="webdavMountFields" style="display:none; margin-top:8px;">
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label style="min-width:80px;">服务器 URL:</label>
+                <input id="webdavUrl" type="url" placeholder="https://example.com/webdav" style="flex:1; min-width:200px;" />
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label style="min-width:80px;">用户名:</label>
+                <input id="webdavUsername" type="text" placeholder="可选" style="flex:1; min-width:120px;" />
+                <label style="min-width:80px;">密码:</label>
+                <input id="webdavPassword" type="password" placeholder="可选" style="flex:1; min-width:120px;" />
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label style="min-width:80px;">Bearer Token:</label>
+                <input id="webdavToken" type="text" placeholder="可选（与用户名/密码二选一）" style="flex:1; min-width:200px;" />
+              </div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <label style="min-width:80px;">远程根路径:</label>
+                <input id="webdavRemoteRoot" type="text" placeholder="/" style="flex:1; min-width:120px;" />
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px;">
+            <button id="webdavDisconnectBtn" class="btn btn-danger">断开当前挂载</button>
+            <span id="webdavStatus" style="color:#666;">未连接</span>
+          </div>
+        </section>
+
         <div id="modal" class="modal hidden">
           <div class="modal-content">
             <span class="close">&times;</span>
