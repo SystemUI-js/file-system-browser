@@ -722,31 +722,50 @@ if (mountPluginSelect && webdavMountFields) {
   });
 }
 
-function resolveMountPath(input: string): { path: string | null; error: string | null } {
+function resolveMountPath(input: string): {
+  path: string | null;
+  error: string | null;
+} {
   const trimmed = input.trim();
   if (trimmed === '') return { path: null, error: '挂载路径不能为空' };
-  let resolved: string;
-  if (trimmed.startsWith('/')) {
-    resolved = trimmed;
-  } else {
-    resolved = currentPath === '/' ? `/${trimmed}` : `${currentPath}/${trimmed}`;
+  if (!trimmed.startsWith('/')) {
+    return {
+      path: null,
+      error: 'mountPath 必须是根目录下的一级路径，例如 /memory',
+    };
   }
+  let resolved = trimmed;
   if (resolved !== '/' && resolved.endsWith('/')) {
     resolved = resolved.slice(0, -1);
   }
-  if (resolved.includes('//')) return { path: null, error: '挂载路径不能包含 // ' };
+  if (resolved.includes('//'))
+    return { path: null, error: '挂载路径不能包含 // ' };
   const segments = resolved.split('/').filter(Boolean);
   for (const seg of segments) {
-    if (seg === '.' || seg === '..') return { path: null, error: '挂载路径不能包含 . 或 .. 段' };
+    if (seg === '.' || seg === '..')
+      return { path: null, error: '挂载路径不能包含 . 或 .. 段' };
   }
-  if (resolved === '/') return { path: null, error: '不能挂载到根目录 /' };
+  if (segments.length > 1) {
+    return {
+      path: null,
+      error: 'mountPath 必须是根目录下的一级路径，例如 /memory',
+    };
+  }
   return { path: resolved, error: null };
+}
+
+function isMountedScopePath(targetPath: string, mountPath: string): boolean {
+  return mountPath === '/'
+    ? targetPath.startsWith('/')
+    : targetPath === mountPath || targetPath.startsWith(`${mountPath}/`);
 }
 
 if (mountBtn) {
   mountBtn.addEventListener('click', async () => {
     const selectedPlugin = mountPluginSelect?.value || 'memory';
-    const { path: mountPath, error } = resolveMountPath(mountPathInput?.value || '');
+    const { path: mountPath, error } = resolveMountPath(
+      mountPathInput?.value || ''
+    );
     if (error || !mountPath) {
       if (mountStatus) mountStatus.textContent = error;
       return;
@@ -816,7 +835,7 @@ if (webdavDisconnectBtn) {
     try {
       const entriesToRemove: Array<{ path: string; plugin: string }> = [];
       mountedPaths.forEach((plugin, path) => {
-        if (currentPath === path || currentPath.startsWith(`${path}/`)) {
+        if (isMountedScopePath(currentPath, path)) {
           entriesToRemove.push({ path, plugin });
         }
       });

@@ -603,7 +603,8 @@ const corePromises = {
         : BufferPolyfill.fromString(String(data), enc || 'utf8');
     const targetPath =
       typeof file === 'number'
-        ? ((fdTable.get(file)?.localPath ?? fdTable.get(file)?.path) ??
+        ? (fdTable.get(file)?.localPath ??
+          fdTable.get(file)?.path ??
           (() => {
             throw new Error('EBADF');
           })())
@@ -1006,7 +1007,9 @@ export function usePlugin<TOptions = unknown>(
   holder.current = instance;
   activePlugins = [
     ...activePlugins.filter((p) =>
-      mountPath ? !(p.name === name && p.mountPath === mountPath) : p.name !== name
+      mountPath
+        ? !(p.name === name && p.mountPath === mountPath)
+        : p.name !== name
     ),
     instance,
   ];
@@ -1024,13 +1027,18 @@ function normalizeAndTest(reg: RegExp, path: string): boolean {
 
 function normalizeMountPath(path?: string): string | undefined {
   if (path == null) return undefined;
-  if (!path || path === '/' || (path !== '/' && path.endsWith('/'))) {
+  if (!path || (path !== '/' && path.endsWith('/'))) {
     throw new Error(`Invalid plugin mount path: ${path}`);
   }
-  return norm(path);
+  path = norm(path);
+  if (path.split('/').filter(Boolean).length > 1) {
+    throw new Error('mountPath 必须是根目录下的一级路径，例如 /memory');
+  }
+  return path;
 }
 
 function isMountBoundary(path: string, mountPath: string): boolean {
+  if (mountPath === '/') return path.startsWith('/');
   return path === mountPath || path.startsWith(`${mountPath}/`);
 }
 
@@ -1050,10 +1058,15 @@ function toGlobalPath(plugin: ActivePlugin, localPath: string): string {
 
 function resolvePluginForPath(path: string): ActivePlugin | undefined {
   const normalized = norm(path);
-  const mounted = activePlugins
-    .filter((ap) => ap.mountPath && isMountBoundary(normalized, ap.mountPath))
-    .sort((a, b) => (b.mountPath?.length ?? 0) - (a.mountPath?.length ?? 0));
-  if (mounted[0]) return mounted[0];
+  const mounted = activePlugins.find(
+    (ap) =>
+      ap.mountPath &&
+      ap.mountPath !== '/' &&
+      isMountBoundary(normalized, ap.mountPath)
+  );
+  if (mounted) return mounted;
+  const rootMounted = activePlugins.find((ap) => ap.mountPath === '/');
+  if (rootMounted && isMountBoundary(normalized, '/')) return rootMounted;
   return activePlugins.find(
     (ap) => !ap.mountPath && normalizeAndTest(ap.match, normalized)
   );
@@ -1080,11 +1093,15 @@ function makeVirtualDirectoryStats(path: string): Stats {
 function assertNotMountRoot(path: string, operation: string): void {
   const mounted = mountedRootForPath(path);
   if (mounted) {
-    throw new Error(`EBUSY: cannot ${operation} mount root '${mounted.mountPath}'`);
+    throw new Error(
+      `EBUSY: cannot ${operation} mount root '${mounted.mountPath}'`
+    );
   }
 }
 
 function mountRootNames(): string[] {
+  // T1 enforces root-only mounts, so all mountPaths here are already root-level.
+  // The parentOf() filter remains as a defensive safety check.
   return Array.from(
     new Set(
       activePlugins
@@ -1099,7 +1116,9 @@ type PluginResolution = {
   localPaths: Array<string | undefined>;
 };
 
-function pathArgumentIndexes(method: keyof CorePromises | UtilityMethod): number[] {
+function pathArgumentIndexes(
+  method: keyof CorePromises | UtilityMethod
+): number[] {
   switch (method) {
     case 'rename':
     case 'copyFile':
@@ -1142,7 +1161,8 @@ function translatePathArguments(
   const indexes = pathArgumentIndexes(method);
   indexes.forEach((argIndex, pathIndex) => {
     if (typeof translated[argIndex] === 'string') {
-      translated[argIndex] = resolution.localPaths[pathIndex] ?? translated[argIndex];
+      translated[argIndex] =
+        resolution.localPaths[pathIndex] ?? translated[argIndex];
     }
   });
   return translated;
@@ -1258,16 +1278,21 @@ async function virtualRootReaddir(
   const legacy = resolvePluginFromPaths(['/']);
   const legacyHandler = legacy?.plugin.handlers.readdir;
   if (legacyHandler) {
-    const entries = (await (legacyHandler as (path: string, options?: unknown) => Promise<Array<Dirent | string>>)(
-      '/',
-      options
-    )) as Array<Dirent | string>;
+    const entries = (await (
+      legacyHandler as (
+        path: string,
+        options?: unknown
+      ) => Promise<Array<Dirent | string>>
+    )('/', options)) as Array<Dirent | string>;
     for (const entry of entries) {
       entriesByName.set(typeof entry === 'string' ? entry : entry.name, entry);
     }
   }
   for (const name of mountRootNames()) {
-    entriesByName.set(name, withFileTypes ? new Dirent(name, 'directory') : name);
+    entriesByName.set(
+      name,
+      withFileTypes ? new Dirent(name, 'directory') : name
+    );
   }
   return Array.from(entriesByName.values());
 }
@@ -1447,8 +1472,7 @@ const promises: CorePromises = {
     offset: number,
     length: number,
     position: number | null
-  ) =>
-    runWithFdPluginPromise('read', fd, fd, buffer, offset, length, position),
+  ) => runWithFdPluginPromise('read', fd, fd, buffer, offset, length, position),
   write: (
     fd: number,
     buffer: Uint8Array | string,

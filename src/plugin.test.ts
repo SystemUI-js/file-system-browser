@@ -1,5 +1,12 @@
 import { BufferPolyfill, Dirent, type FsPluginContext } from './fs';
-import { createIndexedDBStoragePlugin, createMemoryStoragePlugin, fs, registerPlugin, unregisterPlugin, usePlugin } from './index';
+import {
+  createIndexedDBStoragePlugin,
+  createMemoryStoragePlugin,
+  fs,
+  registerPlugin,
+  unregisterPlugin,
+  usePlugin,
+} from './index';
 
 describe('plugin system', () => {
   const cleanupPluginNames = [
@@ -14,11 +21,17 @@ describe('plugin system', () => {
     'catch-all',
     'prefix-mounted',
     'memory',
+    'root-mounted',
+    'child-mounted',
   ];
 
   const cleanupPlugins = () => {
     for (const name of cleanupPluginNames) {
-      try { unregisterPlugin(name); } catch { /* noop */ }
+      try {
+        unregisterPlugin(name);
+      } catch {
+        /* noop */
+      }
     }
   };
 
@@ -144,7 +157,9 @@ describe('plugin system', () => {
         await fs.promises.writeFile('/unregtest2.txt', 'hello', 'utf8');
       } catch (err: unknown) {
         thrown = true;
-        expect(err instanceof Error ? err.message : String(err)).toBe('No storage plugin mounted for this path');
+        expect(err instanceof Error ? err.message : String(err)).toBe(
+          'No storage plugin mounted for this path'
+        );
       }
       expect(thrown).toBe(true);
     });
@@ -157,23 +172,36 @@ describe('plugin system', () => {
     });
 
     it('fs.promises.writeFile should work (Promise path)', async () => {
-      await fs.promises.writeFile('/promises_write.txt', 'promise write test', 'utf8');
+      await fs.promises.writeFile(
+        '/promises_write.txt',
+        'promise write test',
+        'utf8'
+      );
       const content = await fs.promises.readFile('/promises_write.txt', 'utf8');
       expect(content).toBe('promise write test');
     });
 
     it('fs.promises.readFile should work (Promise path)', async () => {
-      await fs.promises.writeFile('/promises_read.txt', 'promise read test', 'utf8');
+      await fs.promises.writeFile(
+        '/promises_read.txt',
+        'promise read test',
+        'utf8'
+      );
       const content = await fs.promises.readFile('/promises_read.txt', 'utf8');
       expect(content).toBe('promise read test');
     });
 
     it('fs.writeFile should work with callback (error-first path)', async () => {
       await new Promise<void>((resolve, reject) => {
-        fs.writeFile('/callback_write.txt', 'callback write test', 'utf8', (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+        fs.writeFile(
+          '/callback_write.txt',
+          'callback write test',
+          'utf8',
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
       });
       const content = await new Promise<string>((resolve, reject) => {
         fs.readFile('/callback_write.txt', 'utf8', (err, data) => {
@@ -186,10 +214,15 @@ describe('plugin system', () => {
 
     it('fs.readFile should work with callback (error-first path)', async () => {
       await new Promise<void>((resolve, reject) => {
-        fs.writeFile('/callback_read.txt', 'callback read test', 'utf8', (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+        fs.writeFile(
+          '/callback_read.txt',
+          'callback read test',
+          'utf8',
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
       });
       const content = await new Promise<string>((resolve, reject) => {
         fs.readFile('/callback_read.txt', 'utf8', (err, data) => {
@@ -218,7 +251,9 @@ describe('plugin system', () => {
 
       const buf = new Uint8Array(100);
       const result = await fs.promises.read(readFd, buf, 0, buf.length, 0);
-      const content = new TextDecoder().decode(buf.subarray(0, result.bytesRead));
+      const content = new TextDecoder().decode(
+        buf.subarray(0, result.bytesRead)
+      );
 
       await readHandle.close();
 
@@ -234,10 +269,17 @@ describe('plugin system', () => {
       });
 
       await new Promise<void>((resolve, reject) => {
-        fs.write(writeFd, BufferPolyfill.fromString('callback fd content'), 0, undefined, undefined, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+        fs.write(
+          writeFd,
+          BufferPolyfill.fromString('callback fd content'),
+          0,
+          undefined,
+          undefined,
+          (err) => {
+            if (err) reject(err);
+            else resolve();
+          }
+        );
       });
 
       await new Promise<void>((resolve, reject) => {
@@ -290,8 +332,12 @@ describe('plugin system', () => {
     it('validates memory plugin mount paths through core rules', () => {
       registerPlugin('memory', createMemoryStoragePlugin);
 
-      expect(() => usePlugin('memory', { mountPath: '' })).toThrow('Invalid plugin mount path: ');
-      expect(() => usePlugin('memory', { mountPath: '/' })).toThrow('Invalid plugin mount path: /');
+      expect(() => usePlugin('memory', { mountPath: '' })).toThrow(
+        'Invalid plugin mount path: '
+      );
+      expect(() => usePlugin('memory', { mountPath: '/' })).not.toThrow();
+      unregisterPlugin('memory');
+      registerPlugin('memory', createMemoryStoragePlugin);
       expect(() => usePlugin('memory', { mountPath: '/memory/' })).toThrow(
         'Invalid plugin mount path: /memory/'
       );
@@ -321,8 +367,12 @@ describe('plugin system', () => {
       usePlugin('catch-all', {});
       usePlugin('prefix-mounted', {});
 
-      await expect(fs.promises.readFile('/cloud/file.txt', 'utf8')).resolves.toBe('mounted:/file.txt');
-      await expect(fs.promises.readFile('/outside.txt', 'utf8')).resolves.toBe('catch-all:/outside.txt');
+      await expect(
+        fs.promises.readFile('/cloud/file.txt', 'utf8')
+      ).resolves.toBe('mounted:/file.txt');
+      await expect(fs.promises.readFile('/outside.txt', 'utf8')).resolves.toBe(
+        'catch-all:/outside.txt'
+      );
     });
   });
 
@@ -362,20 +412,96 @@ describe('plugin system', () => {
       }));
     };
 
-    it('longest mounted prefix wins, including nested mounts', async () => {
+    it('routes descendant paths under root-level mount', async () => {
       registerMountedPlugin();
       usePlugin('mounted', { mountPath: '/webdav', label: 'outer' });
-      usePlugin('mounted', { mountPath: '/webdav/nested', label: 'inner' });
 
-      await expect(fs.promises.readFile('/webdav/a.txt', 'utf8')).resolves.toBe('outer:/a.txt');
-      await expect(fs.promises.readFile('/webdav/nested/a.txt', 'utf8')).resolves.toBe('inner:/a.txt');
+      // Direct child of mount root
+      await expect(fs.promises.readFile('/webdav/a.txt', 'utf8')).resolves.toBe(
+        'outer:/a.txt'
+      );
+      // Shallow descendant
+      await expect(
+        fs.promises.readFile('/webdav/folder/file.txt', 'utf8')
+      ).resolves.toBe('outer:/folder/file.txt');
+      // Deep descendant — same plugin handles all descendants under the root mount
+      await expect(
+        fs.promises.readFile('/webdav/nested/deep/path.txt', 'utf8')
+      ).resolves.toBe('outer:/nested/deep/path.txt');
+      // readdir on descendant path
+      await expect(fs.promises.readdir('/webdav/folder')).resolves.toEqual([
+        'outer:/folder',
+      ]);
+    });
+
+    it('rejects nested mount paths', () => {
+      registerPlugin('memory', createMemoryStoragePlugin);
+
+      expect(() =>
+        usePlugin('memory', { mountPath: '/memory/nested' })
+      ).toThrow('mountPath 必须是根目录下的一级路径，例如 /memory');
+    });
+
+    it('accepts root-level memory mount paths', async () => {
+      registerPlugin('memory', createMemoryStoragePlugin);
+      usePlugin('memory', { mountPath: '/memory' });
+
+      await fs.promises.writeFile('/memory/file.txt', 'ok', 'utf8');
+      await expect(
+        fs.promises.readFile('/memory/file.txt', 'utf8')
+      ).resolves.toBe('ok');
+    });
+
+    it('accepts root mount paths and routes descendants through them', async () => {
+      registerPlugin('memory', createMemoryStoragePlugin);
+      usePlugin('memory', { mountPath: '/' });
+
+      await fs.promises.mkdir('/docs', { recursive: true });
+      await fs.promises.writeFile('/docs/root.txt', 'root ok', 'utf8');
+
+      await expect(
+        fs.promises.readFile('/docs/root.txt', 'utf8')
+      ).resolves.toBe('root ok');
+      await expect(fs.promises.readdir('/')).resolves.toContain('docs');
+    });
+
+    it('prefers a direct child mount over a root mount', async () => {
+      registerMountedPlugin('root-mounted');
+      registerMountedPlugin('child-mounted');
+
+      usePlugin('root-mounted', { mountPath: '/', label: 'root' });
+      usePlugin('child-mounted', { mountPath: '/webdav', label: 'child' });
+
+      await expect(fs.promises.readFile('/outside.txt', 'utf8')).resolves.toBe(
+        'root:/outside.txt'
+      );
+      await expect(
+        fs.promises.readFile('/webdav/file.txt', 'utf8')
+      ).resolves.toBe('child:/file.txt');
+    });
+
+    it('still prefers a direct child mount when the root mount registers later', async () => {
+      registerMountedPlugin('root-mounted');
+      registerMountedPlugin('child-mounted');
+
+      usePlugin('child-mounted', { mountPath: '/webdav', label: 'child' });
+      usePlugin('root-mounted', { mountPath: '/', label: 'root' });
+
+      await expect(
+        fs.promises.readFile('/webdav/file.txt', 'utf8')
+      ).resolves.toBe('child:/file.txt');
+      await expect(fs.promises.readFile('/other.txt', 'utf8')).resolves.toBe(
+        'root:/other.txt'
+      );
     });
 
     it('strips the mounted prefix exactly once before dispatching to handlers', async () => {
       registerMountedPlugin();
       usePlugin('mounted', { mountPath: '/webdav', label: 'outer' });
 
-      await expect(fs.promises.readFile('/webdav/webdav/file.txt', 'utf8')).resolves.toBe('outer:/webdav/file.txt');
+      await expect(
+        fs.promises.readFile('/webdav/webdav/file.txt', 'utf8')
+      ).resolves.toBe('outer:/webdav/file.txt');
     });
 
     it('rejects cross-mount mutation by mountId', async () => {
@@ -385,9 +511,15 @@ describe('plugin system', () => {
 
       const message = '路径同时匹配到多个不同的插件，请检查拦截规则';
 
-      await expect(async () => fs.promises.rename('/one/a.txt', '/two/a.txt')).rejects.toThrow(message);
-      await expect(async () => fs.promises.copyFile('/one/a.txt', '/two/a.txt')).rejects.toThrow(message);
-      await expect(async () => fs.promises.link('/one/a.txt', '/two/a.txt')).rejects.toThrow(message);
+      await expect(async () =>
+        fs.promises.rename('/one/a.txt', '/two/a.txt')
+      ).rejects.toThrow(message);
+      await expect(async () =>
+        fs.promises.copyFile('/one/a.txt', '/two/a.txt')
+      ).rejects.toThrow(message);
+      await expect(async () =>
+        fs.promises.link('/one/a.txt', '/two/a.txt')
+      ).rejects.toThrow(message);
     });
 
     it('allows same plugin name mounted at different paths to coexist', async () => {
@@ -395,9 +527,15 @@ describe('plugin system', () => {
       usePlugin('same-mounted', { mountPath: '/alpha', label: 'alpha' });
       usePlugin('same-mounted', { mountPath: '/beta', label: 'beta' });
 
-      await expect(fs.promises.readFile('/alpha/file.txt', 'utf8')).resolves.toBe('alpha:/file.txt');
-      await expect(fs.promises.readFile('/beta/file.txt', 'utf8')).resolves.toBe('beta:/file.txt');
-      await expect(fs.promises.readdir('/alpha/folder')).resolves.toEqual(['alpha:/folder']);
+      await expect(
+        fs.promises.readFile('/alpha/file.txt', 'utf8')
+      ).resolves.toBe('alpha:/file.txt');
+      await expect(
+        fs.promises.readFile('/beta/file.txt', 'utf8')
+      ).resolves.toBe('beta:/file.txt');
+      await expect(fs.promises.readdir('/alpha/folder')).resolves.toEqual([
+        'alpha:/folder',
+      ]);
       await expect(fs.promises.readdir('/beta')).resolves.toEqual(['beta:/']);
 
       const entries = await fs.promises.readdir('/');
@@ -409,7 +547,9 @@ describe('plugin system', () => {
       registerMountedPlugin();
       usePlugin('mounted', { mountPath: '/webdav', label: 'outer' });
 
-      await expect(async () => fs.promises.readFile('/webdav2/file.txt', 'utf8')).rejects.toThrow('No storage plugin mounted for this path');
+      await expect(async () =>
+        fs.promises.readFile('/webdav2/file.txt', 'utf8')
+      ).rejects.toThrow('No storage plugin mounted for this path');
     });
 
     it('keeps legacy usePlugin without mountPath working', async () => {
@@ -417,7 +557,21 @@ describe('plugin system', () => {
       usePlugin('indexeddb', {});
 
       await fs.promises.writeFile('/legacy-still-works.txt', 'ok', 'utf8');
-      await expect(fs.promises.readFile('/legacy-still-works.txt', 'utf8')).resolves.toBe('ok');
+      await expect(
+        fs.promises.readFile('/legacy-still-works.txt', 'utf8')
+      ).resolves.toBe('ok');
+    });
+
+    it('lists multiple root mounts each exactly once', async () => {
+      registerPlugin('memory', createMemoryStoragePlugin);
+      usePlugin('memory', { mountPath: '/mem' });
+      usePlugin('memory', { mountPath: '/data' });
+
+      const entries = await fs.promises.readdir('/');
+      const mounts = entries.filter((e) =>
+        ['mem', 'data'].includes(typeof e === 'string' ? e : e.name)
+      );
+      expect(mounts).toHaveLength(2);
     });
 
     it('lists mounted roots at virtual root with base entries', async () => {
@@ -434,8 +588,12 @@ describe('plugin system', () => {
 
       const stat = await fs.promises.stat('/webdav');
       expect(stat.isDirectory()).toBe(true);
-      await expect(async () => fs.promises.mkdir('/webdav')).rejects.toThrow('EBUSY');
-      await expect(async () => fs.promises.rm('/webdav')).rejects.toThrow('EBUSY');
+      await expect(async () => fs.promises.mkdir('/webdav')).rejects.toThrow(
+        'EBUSY'
+      );
+      await expect(async () => fs.promises.rm('/webdav')).rejects.toThrow(
+        'EBUSY'
+      );
     });
 
     it('mounted indexeddb plugin with mountPath works correctly', async () => {
@@ -443,7 +601,11 @@ describe('plugin system', () => {
       usePlugin('indexeddb', { mountPath: '/indexeddb' });
 
       // Write to mounted path - should store at plugin-local /file.txt
-      await fs.promises.writeFile('/indexeddb/file.txt', 'indexeddb content', 'utf8');
+      await fs.promises.writeFile(
+        '/indexeddb/file.txt',
+        'indexeddb content',
+        'utf8'
+      );
 
       // Read back from mounted path
       const content = await fs.promises.readFile('/indexeddb/file.txt', 'utf8');
@@ -458,8 +620,12 @@ describe('plugin system', () => {
       expect(stat.isDirectory()).toBe(true);
 
       // Cannot mutate mount root itself
-      await expect(async () => fs.promises.mkdir('/indexeddb')).rejects.toThrow('EBUSY');
-      await expect(async () => fs.promises.rm('/indexeddb')).rejects.toThrow('EBUSY');
+      await expect(async () => fs.promises.mkdir('/indexeddb')).rejects.toThrow(
+        'EBUSY'
+      );
+      await expect(async () => fs.promises.rm('/indexeddb')).rejects.toThrow(
+        'EBUSY'
+      );
     });
 
     it('legacy indexeddb without mountPath still works', async () => {

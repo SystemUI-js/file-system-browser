@@ -9,23 +9,32 @@ interface WindowWithFs extends Window {
       readFile: (path: string, encoding: string) => Promise<string>;
     };
   };
+  refreshFileList?: () => Promise<void>;
 }
-
 
 async function mountPlugin(
   page: Page,
   plugin: 'memory' | 'indexeddb' | 'webdav',
   mountPath: string,
-  webdavConfig?: { url: string; username?: string; password?: string; token?: string; remoteRoot?: string }
+  webdavConfig?: {
+    url: string;
+    username?: string;
+    password?: string;
+    token?: string;
+    remoteRoot?: string;
+  }
 ): Promise<void> {
   await page.selectOption('#mountPluginSelect', plugin);
   await page.fill('#mountPathInput', mountPath);
   if (plugin === 'webdav' && webdavConfig) {
     if (webdavConfig.url) await page.fill('#webdavUrl', webdavConfig.url);
-    if (webdavConfig.username) await page.fill('#webdavUsername', webdavConfig.username);
-    if (webdavConfig.password) await page.fill('#webdavPassword', webdavConfig.password);
+    if (webdavConfig.username)
+      await page.fill('#webdavUsername', webdavConfig.username);
+    if (webdavConfig.password)
+      await page.fill('#webdavPassword', webdavConfig.password);
     if (webdavConfig.token) await page.fill('#webdavToken', webdavConfig.token);
-    if (webdavConfig.remoteRoot) await page.fill('#webdavRemoteRoot', webdavConfig.remoteRoot);
+    if (webdavConfig.remoteRoot)
+      await page.fill('#webdavRemoteRoot', webdavConfig.remoteRoot);
   }
   await page.click('#mountBtn');
   await expect(page.locator('#currentPath')).toHaveText(mountPath);
@@ -53,11 +62,6 @@ async function createFolder(page: Page, folderPath: string): Promise<void> {
     },
     { folderPath }
   );
-}
-
-async function openPath(page: Page, path: string): Promise<void> {
-  await page.click(`.file-item[data-path="${path}"] .file-name`);
-  await expect(page.locator('#currentPath')).toHaveText(path);
 }
 
 test.describe('Demo Page', () => {
@@ -105,15 +109,37 @@ test.describe('Demo Page', () => {
 
     await mountPlugin(page, 'memory', '/memory');
 
-    await expect(page.locator('#mountStatus')).toContainText('已挂载: memory -> /memory');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '已挂载: memory -> /memory'
+    );
     await expect(page.locator('#currentPath')).toHaveText('/memory');
 
     await writeFile(page, '/memory/hello.txt', 'hello');
     await page.evaluate(async () => {
-      await (window as any).refreshFileList();
+      await (window as WindowWithFs).refreshFileList?.();
     });
     await expect(
       page.locator('.file-item:has-text("hello.txt")')
+    ).toBeVisible();
+  });
+
+  test('should allow mounting memory storage at root', async ({ page }) => {
+    await page.goto('/file-system-browser/');
+    await page.waitForTimeout(500);
+
+    await mountPlugin(page, 'memory', '/');
+
+    await expect(page.locator('#mountStatus')).toContainText(
+      '已挂载: memory -> /'
+    );
+    await expect(page.locator('#currentPath')).toHaveText('/');
+
+    await writeFile(page, '/root-mounted.txt', 'hello root');
+    await page.evaluate(async () => {
+      await (window as WindowWithFs).refreshFileList?.();
+    });
+    await expect(
+      page.locator('.file-item:has-text("root-mounted.txt")')
     ).toBeVisible();
   });
 
@@ -123,12 +149,9 @@ test.describe('Demo Page', () => {
 
     await page.fill('#mountPathInput', '');
     await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('挂载路径不能为空');
-    await expect(page.locator('#currentPath')).toHaveText('/');
-
-    await page.fill('#mountPathInput', '/');
-    await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('不能挂载到根目录');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '挂载路径不能为空'
+    );
     await expect(page.locator('#currentPath')).toHaveText('/');
 
     await page.fill('#mountPathInput', '/foo/');
@@ -138,75 +161,50 @@ test.describe('Demo Page', () => {
 
     await page.fill('#mountPathInput', '//foo');
     await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('挂载路径不能包含 //');
-    await expect(page.locator('#currentPath')).toHaveText('/');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '挂载路径不能包含 //'
+    );
+    await expect(page.locator('#currentPath')).toHaveText('/foo');
 
     await page.fill('#mountPathInput', '/foo/bar/..');
     await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('挂载路径不能包含 . 或 .. 段');
-    await expect(page.locator('#currentPath')).toHaveText('/');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '挂载路径不能包含 . 或 .. 段'
+    );
+    await expect(page.locator('#currentPath')).toHaveText('/foo');
 
     await page.fill('#mountPathInput', '/foo/./bar');
     await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('挂载路径不能包含 . 或 .. 段');
-    await expect(page.locator('#currentPath')).toHaveText('/');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '挂载路径不能包含 . 或 .. 段'
+    );
+    await expect(page.locator('#currentPath')).toHaveText('/foo');
   });
 
-  test('should support relative mount paths resolved against current directory', async ({ page }) => {
+  test('should reject relative mount paths', async ({ page }) => {
     await page.goto('/file-system-browser/');
     await page.waitForTimeout(500);
-
-    await mountPlugin(page, 'memory', '/memory');
 
     await page.fill('#mountPathInput', 'nested');
     await page.click('#mountBtn');
-    await expect(page.locator('#mountStatus')).toContainText('已挂载: memory -> /memory/nested');
-    await expect(page.locator('#currentPath')).toHaveText('/memory/nested');
-
-    await writeFile(page, '/memory/outer.txt', 'outer');
-    await writeFile(page, '/memory/nested/inner.txt', 'inner');
-
-    const outerContent = await page.evaluate(async () => {
-      const fs = (window as unknown as WindowWithFs).fs;
-      return fs.promises.readFile('/memory/outer.txt', 'utf8');
-    });
-    expect(outerContent).toBe('outer');
-
-    const innerContent = await page.evaluate(async () => {
-      const fs = (window as unknown as WindowWithFs).fs;
-      return fs.promises.readFile('/memory/nested/inner.txt', 'utf8');
-    });
-    expect(innerContent).toBe('inner');
+    await expect(page.locator('#mountStatus')).toContainText(
+      'mountPath 必须是根目录下的一级路径，例如 /memory'
+    );
+    await expect(page.locator('#currentPath')).toHaveText('/');
   });
 
-  test('should support nested memory mounts', async ({ page }) => {
+  test('should reject nested mount paths', async ({ page }) => {
     await page.goto('/file-system-browser/');
     await page.waitForTimeout(500);
 
     await mountPlugin(page, 'memory', '/memory');
-    await mountPlugin(page, 'memory', '/memory/nested');
 
-    await writeFile(page, '/memory/outer.txt', 'outer');
-    await writeFile(page, '/memory/nested/inner.txt', 'inner');
-
-    await page.click('button:has-text("← 返回上级")');
-    await page.waitForTimeout(300);
+    await page.fill('#mountPathInput', '/memory/nested');
+    await page.click('#mountBtn');
+    await expect(page.locator('#mountStatus')).toContainText(
+      'mountPath 必须是根目录下的一级路径，例如 /memory'
+    );
     await expect(page.locator('#currentPath')).toHaveText('/memory');
-    await expect(
-      page.locator('.file-item:has-text("outer.txt")')
-    ).toBeVisible();
-
-    const outerContent = await page.evaluate(async () => {
-      const fs = (window as unknown as WindowWithFs).fs;
-      return fs.promises.readFile('/memory/outer.txt', 'utf8');
-    });
-    expect(outerContent).toBe('outer');
-
-    const innerContent = await page.evaluate(async () => {
-      const fs = (window as unknown as WindowWithFs).fs;
-      return fs.promises.readFile('/memory/nested/inner.txt', 'utf8');
-    });
-    expect(innerContent).toBe('inner');
   });
 
   test('should connect and disconnect WebDAV mount through UI', async ({
@@ -232,7 +230,7 @@ test.describe('Demo Page', () => {
       <d:status>HTTP/1.1 200 OK</d:status>
     </d:propstat>
   </d:response>
-</d:multistatus>`
+</d:multistatus>`,
         });
       } else {
         route.continue();
@@ -250,7 +248,9 @@ test.describe('Demo Page', () => {
       url: 'http://localhost:9974/mock-webdav',
     });
 
-    await expect(page.locator('#mountStatus')).toContainText('已挂载: webdav -> /webdav');
+    await expect(page.locator('#mountStatus')).toContainText(
+      '已挂载: webdav -> /webdav'
+    );
     await expect(page.locator('#webdavStatus')).toHaveText('已连接');
     await expect(page.locator('#currentPath')).toHaveText('/webdav');
 
@@ -279,9 +279,7 @@ test.describe('Demo Page', () => {
     ).not.toBeVisible();
   });
 
-  test('should show error when WebDAV connection fails', async ({
-    page,
-  }) => {
+  test('should show error when WebDAV connection fails', async ({ page }) => {
     await page.goto('/file-system-browser/');
     await page.waitForTimeout(500);
 
@@ -301,7 +299,6 @@ test.describe('Demo Page', () => {
       page.locator('.file-item[data-path="/webdav"]')
     ).not.toBeVisible();
   });
-
 
   test('should request persistent storage when clicking request persist button', async ({
     page,

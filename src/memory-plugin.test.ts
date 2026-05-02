@@ -33,10 +33,14 @@ describe('memory storage plugin', () => {
     mountMemory();
 
     await fs.promises.writeFile('/memory/file.txt', 'hello', 'utf8');
-    await expect(fs.promises.readFile('/memory/file.txt', 'utf8')).resolves.toBe('hello');
+    await expect(
+      fs.promises.readFile('/memory/file.txt', 'utf8')
+    ).resolves.toBe('hello');
 
     await fs.promises.appendFile('/memory/file.txt', ' world', 'utf8');
-    await expect(fs.promises.readFile('/memory/file.txt', 'utf8')).resolves.toBe('hello world');
+    await expect(
+      fs.promises.readFile('/memory/file.txt', 'utf8')
+    ).resolves.toBe('hello world');
 
     const bytes = new Uint8Array([65, 66, 67]);
     await fs.promises.writeFile('/memory/bytes.bin', bytes);
@@ -45,13 +49,17 @@ describe('memory storage plugin', () => {
     expect(Array.from(stored)).toEqual([65, 66, 67]);
 
     await expect(fs.promises.exists('/memory/file.txt')).resolves.toBe(true);
-    await expect(fs.promises.access('/memory/file.txt')).resolves.toBeUndefined();
+    await expect(
+      fs.promises.access('/memory/file.txt')
+    ).resolves.toBeUndefined();
     const stat = await fs.promises.stat('/memory/file.txt');
     expect(stat.isFile()).toBe(true);
     expect(stat.size).toBe('hello world'.length);
 
     await fs.promises.unlink('/memory/file.txt');
-    await expect(fs.promises.readFile('/memory/file.txt', 'utf8')).rejects.toThrow('ENOENT');
+    await expect(
+      fs.promises.readFile('/memory/file.txt', 'utf8')
+    ).rejects.toThrow('ENOENT');
   });
 
   it('supports directory CRUD and recursive mkdir/rm', async () => {
@@ -63,13 +71,17 @@ describe('memory storage plugin', () => {
     const names = await fs.promises.readdir('/memory/a/b/c');
     expect(names).toEqual(['file.txt']);
 
-    const dirents = await fs.promises.readdir('/memory/a/b', { withFileTypes: true });
+    const dirents = await fs.promises.readdir('/memory/a/b', {
+      withFileTypes: true,
+    });
     expect(dirents[0].name).toBe('c');
     expect(dirents[0].isDirectory()).toBe(true);
 
     await expect(fs.promises.rm('/memory/a')).rejects.toThrow('ENOTEMPTY');
     await fs.promises.rm('/memory/a', { recursive: true });
-    await expect(fs.promises.exists('/memory/a/b/c/file.txt')).resolves.toBe(false);
+    await expect(fs.promises.exists('/memory/a/b/c/file.txt')).resolves.toBe(
+      false
+    );
 
     await fs.promises.mkdir('/memory/empty');
     await fs.promises.rmdir('/memory/empty');
@@ -81,15 +93,29 @@ describe('memory storage plugin', () => {
 
     await fs.promises.mkdir('/memory/docs');
     await fs.promises.writeFile('/memory/docs/source.txt', 'source', 'utf8');
-    await fs.promises.rename('/memory/docs/source.txt', '/memory/docs/renamed.txt');
+    await fs.promises.rename(
+      '/memory/docs/source.txt',
+      '/memory/docs/renamed.txt'
+    );
 
-    await expect(fs.promises.readFile('/memory/docs/source.txt', 'utf8')).rejects.toThrow('ENOENT');
-    await expect(fs.promises.readFile('/memory/docs/renamed.txt', 'utf8')).resolves.toBe('source');
+    await expect(
+      fs.promises.readFile('/memory/docs/source.txt', 'utf8')
+    ).rejects.toThrow('ENOENT');
+    await expect(
+      fs.promises.readFile('/memory/docs/renamed.txt', 'utf8')
+    ).resolves.toBe('source');
 
-    await fs.promises.copyFile('/memory/docs/renamed.txt', '/memory/docs/copy.txt');
+    await fs.promises.copyFile(
+      '/memory/docs/renamed.txt',
+      '/memory/docs/copy.txt'
+    );
     await fs.promises.writeFile('/memory/docs/copy.txt', 'copy', 'utf8');
-    await expect(fs.promises.readFile('/memory/docs/renamed.txt', 'utf8')).resolves.toBe('source');
-    await expect(fs.promises.readFile('/memory/docs/copy.txt', 'utf8')).resolves.toBe('copy');
+    await expect(
+      fs.promises.readFile('/memory/docs/renamed.txt', 'utf8')
+    ).resolves.toBe('source');
+    await expect(
+      fs.promises.readFile('/memory/docs/copy.txt', 'utf8')
+    ).resolves.toBe('copy');
   });
 
   it('supports symlink/readlink and detects symlink loops', async () => {
@@ -98,10 +124,16 @@ describe('memory storage plugin', () => {
     await fs.promises.writeFile('/memory/target.txt', 'target', 'utf8');
     await fs.promises.symlink('/memory/target.txt', '/memory/link.txt');
 
-    await expect(fs.promises.readlink('/memory/link.txt')).resolves.toBe('/target.txt');
-    expect((await fs.promises.lstat('/memory/link.txt')).isSymbolicLink()).toBe(true);
+    await expect(fs.promises.readlink('/memory/link.txt')).resolves.toBe(
+      '/target.txt'
+    );
+    expect((await fs.promises.lstat('/memory/link.txt')).isSymbolicLink()).toBe(
+      true
+    );
     expect((await fs.promises.stat('/memory/link.txt')).isFile()).toBe(true);
-    await expect(fs.promises.readFile('/memory/link.txt', 'utf8')).resolves.toBe('target');
+    await expect(
+      fs.promises.readFile('/memory/link.txt', 'utf8')
+    ).resolves.toBe('target');
 
     await fs.promises.symlink('/memory/loop-b', '/memory/loop-a');
     await fs.promises.symlink('/memory/loop-a', '/memory/loop-b');
@@ -118,7 +150,9 @@ describe('memory storage plugin', () => {
     await expect(fs.promises.nlink('/memory/hard.txt')).resolves.toBe(2);
 
     await fs.promises.writeFile('/memory/hard.txt', 'two', 'utf8');
-    await expect(fs.promises.readFile('/memory/original.txt', 'utf8')).resolves.toBe('two');
+    await expect(
+      fs.promises.readFile('/memory/original.txt', 'utf8')
+    ).resolves.toBe('two');
   });
 
   it('supports open/read/write/close and fd-level methods', async () => {
@@ -130,24 +164,36 @@ describe('memory storage plugin', () => {
 
     const readHandle = await fs.promises.open('/memory/fd.txt', 'r');
     const buffer = Buffer.alloc(32);
-    const result = await fs.promises.read(readHandle.fd, buffer, 0, buffer.length, 0);
+    const result = await fs.promises.read(
+      readHandle.fd,
+      buffer,
+      0,
+      buffer.length,
+      0
+    );
     await fs.promises.close(readHandle.fd);
 
-    expect(buffer.subarray(0, result.bytesRead).toString('utf8')).toBe('hello fd');
+    expect(buffer.subarray(0, result.bytesRead).toString('utf8')).toBe(
+      'hello fd'
+    );
   });
 
   it('supports createWriteStream and createReadStream', async () => {
     mountMemory();
 
     const writer = fs.createWriteStream('/memory/stream.txt');
-    const finished = new Promise<void>((resolve) => writer.on('finish', resolve));
+    const finished = new Promise<void>((resolve) =>
+      writer.on('finish', resolve)
+    );
     await writer.write('part1-');
     await writer.end('part2');
     await finished;
 
     const chunks: string[] = [];
     const ended = new Promise<void>((resolve, reject) => {
-      const reader = fs.createReadStream('/memory/stream.txt', { highWaterMark: 4 });
+      const reader = fs.createReadStream('/memory/stream.txt', {
+        highWaterMark: 4,
+      });
       reader.on('data', (chunk) => chunks.push(chunk.toString('utf8')));
       reader.on('error', reject);
       reader.on('end', resolve);
@@ -167,7 +213,10 @@ describe('memory storage plugin', () => {
       watchEvents.push([eventType, filename]);
     });
     const fileListener = (curr: unknown, prev: unknown) => {
-      fileEvents.push([(curr as { size: number }).size, (prev as { size: number }).size]);
+      fileEvents.push([
+        (curr as { size: number }).size,
+        (prev as { size: number }).size,
+      ]);
     };
     fs.watchFile('/memory/watched.txt', fileListener);
 
@@ -182,18 +231,43 @@ describe('memory storage plugin', () => {
     expect(fileEvents).toHaveLength(1);
   });
 
-  it('isolates nested memory mounts and uses longest-prefix routing', async () => {
+  it('accepts root-only memory mount and handles descendants', async () => {
+    mountMemory('/memory');
+
+    await fs.promises.writeFile('/memory/file.txt', 'root ok', 'utf8');
+    await expect(
+      fs.promises.readFile('/memory/file.txt', 'utf8')
+    ).resolves.toBe('root ok');
+
+    await fs.promises.mkdir('/memory/folder/subdir', { recursive: true });
+    await fs.promises.writeFile(
+      '/memory/folder/subdir/file.txt',
+      'descendant ok',
+      'utf8'
+    );
+    await expect(
+      fs.promises.readFile('/memory/folder/subdir/file.txt', 'utf8')
+    ).resolves.toBe('descendant ok');
+  });
+
+  it('accepts a root mount and routes every path through the memory plugin', async () => {
+    mountMemory('/');
+
+    await fs.promises.writeFile('/root.txt', 'root ok', 'utf8');
+    await expect(fs.promises.readFile('/root.txt', 'utf8')).resolves.toBe(
+      'root ok'
+    );
+    await fs.promises.mkdir('/folder/sub', { recursive: true });
+    await expect(fs.promises.readdir('/')).resolves.toContain('root.txt');
+  });
+
+  it('rejects nested memory mount paths', () => {
     registerPlugin('memory', createMemoryStoragePlugin);
     usePlugin('memory', { mountPath: '/memory' });
-    usePlugin('memory', { mountPath: '/memory/nested' });
 
-    await fs.promises.writeFile('/memory/same.txt', 'outer', 'utf8');
-    await fs.promises.writeFile('/memory/nested/same.txt', 'inner', 'utf8');
-
-    await expect(fs.promises.readFile('/memory/same.txt', 'utf8')).resolves.toBe('outer');
-    await expect(fs.promises.readFile('/memory/nested/same.txt', 'utf8')).resolves.toBe('inner');
-    await expect(fs.promises.readdir('/memory')).resolves.toEqual(['same.txt']);
-    await expect(fs.promises.readdir('/memory/nested')).resolves.toEqual(['same.txt']);
+    expect(() => usePlugin('memory', { mountPath: '/memory/nested' })).toThrow(
+      'mountPath 必须是根目录下的一级路径，例如 /memory'
+    );
   });
 
   it('loses data after unregistering and remounting', async () => {
@@ -203,7 +277,9 @@ describe('memory storage plugin', () => {
     unregisterPlugin('memory');
     usePlugin('memory', { mountPath: '/memory' });
 
-    await expect(fs.promises.readFile('/memory/temp.txt', 'utf8')).rejects.toThrow('ENOENT');
+    await expect(
+      fs.promises.readFile('/memory/temp.txt', 'utf8')
+    ).rejects.toThrow('ENOENT');
   });
 
   it('throws on direct duplicate same-path mount', () => {
