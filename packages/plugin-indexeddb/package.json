@@ -1,0 +1,30 @@
+{
+  "name": "@system-ui-js/file-system-plugin-indexeddb",
+  "version": "0.1.0",
+  "description": "IndexedDB storage plugin for @system-ui-js/file-system-browser",
+  "type": "module",
+  "main": "./dist/file-system-plugin-indexeddb.umd.js",
+  "module": "./dist/file-system-plugin-indexeddb.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": "./dist/file-system-plugin-indexeddb.es.js",
+      "require": "./dist/file-system-plugin-indexeddb.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "pack:workspace": "yarn pack --filename ../../dist-packages/file-system-plugin-indexeddb.tgz"
+  },
+  "keywords": ["file-system", "browser", "plugin", "indexeddb"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@system-ui-js/file-system-browser": "^0.1.0"
+  }
+}

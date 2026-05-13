@@ -1,5 +1,4 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'path';
 
 export default defineConfig({
   root: 'demo',
@@ -13,8 +12,6 @@ export default defineConfig({
     emptyOutDir: true,
   },
   resolve: {
-    alias: {
-      '@system-ui-js/file-system-browser': resolve(__dirname, 'src/index.ts'),
-    },
+    conditions: ['source', 'module', 'browser', 'development', 'production'],
   },
 });

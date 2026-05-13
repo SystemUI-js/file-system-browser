@@ -2,14 +2,14 @@ import fs, {
   Dirent,
   SortMode,
   SortOrder,
-  createIndexedDBStoragePlugin,
-  createMemoryStoragePlugin,
-  createWebDAVStoragePlugin,
   registerPlugin,
   usePlugin,
   unregisterPlugin,
 } from '@system-ui-js/file-system-browser';
 import { sorter } from '@system-ui-js/file-system-browser';
+import { createMemoryStoragePlugin } from '@system-ui-js/file-system-plugin-memory';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
+import { createWebDAVStoragePlugin } from '@system-ui-js/file-system-plugin-webdav';
 
 declare global {
   interface Window {

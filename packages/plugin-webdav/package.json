@@ -1,0 +1,33 @@
+{
+  "name": "@system-ui-js/file-system-plugin-webdav",
+  "version": "0.1.0",
+  "description": "WebDAV storage plugin for @system-ui-js/file-system-browser",
+  "type": "module",
+  "main": "./dist/file-system-plugin-webdav.umd.js",
+  "module": "./dist/file-system-plugin-webdav.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": "./dist/file-system-plugin-webdav.es.js",
+      "require": "./dist/file-system-plugin-webdav.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "pack:workspace": "yarn pack --filename ../../dist-packages/file-system-plugin-webdav.tgz"
+  },
+  "keywords": ["file-system", "browser", "plugin", "webdav"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@system-ui-js/file-system-browser": "^0.1.0"
+  },
+  "dependencies": {
+    "webdav": "^5.9.0"
+  }
+}

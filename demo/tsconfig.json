@@ -1,10 +1,7 @@
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": ".",
-    "paths": {
-      "@system-ui-js/file-system-browser": ["../src/index.ts"]
-    }
+    "customConditions": ["source"]
   },
   "include": ["./**/*"],
   "exclude": ["node_modules"]

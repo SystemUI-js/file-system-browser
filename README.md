@@ -1,10 +1,10 @@
 # 浏览器文件系统（File System Browser）
 
-一个在浏览器中使用 IndexedDB 实现的"类 Node.js `fs` / 类 WebDAV"文件系统接口，适用于离线文件存储、文件管理器、虚拟文件系统等场景。
+一个在浏览器中通过插件化存储后端实现的"类 Node.js `fs` / 类 WebDAV"文件系统接口，适用于离线文件存储、文件管理器、虚拟文件系统等场景。
 
 ## 核心特性
 
-- **IndexedDB 持久化**：文件/目录数据存放在浏览器本地（可离线）
+- **IndexedDB 持久化插件**：显式挂载后将文件/目录数据存放在浏览器本地（可离线）
 - **Node.js 风格 API**：同时提供 `fs.promises` 与回调（error-first）两种用法
 - **基础文件能力**：读写、追加、复制、重命名、删除、遍历目录等
 - **链接能力**：支持软链接（`symlink/readlink`）与硬链接（`link/nlink`）
@@ -45,10 +45,10 @@ yarn build:demo
 
 ```bash
 # 推荐：yarn
-yarn add @system-ui-js/file-system-browser
+yarn add @system-ui-js/file-system-browser @system-ui-js/file-system-plugin-indexeddb
 
 # npm
-npm i @system-ui-js/file-system-browser
+npm i @system-ui-js/file-system-browser @system-ui-js/file-system-plugin-indexeddb
 ```
 
 ## 快速开始
@@ -56,7 +56,11 @@ npm i @system-ui-js/file-system-browser
 ### Promise 用法（推荐）
 
 ```ts
-import fs from '@system-ui-js/file-system-browser';
+import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
+
+registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+usePlugin('indexeddb', { mountPath: '/' });
 
 await fs.promises.mkdir('/documents', { recursive: true });
 await fs.promises.writeFile('/documents/hello.txt', 'hello', 'utf8');
@@ -68,7 +72,11 @@ console.log(text); // "hello"
 ### 回调用法（Node error-first）
 
 ```ts
-import fs from '@system-ui-js/file-system-browser';
+import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
+
+registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+usePlugin('indexeddb', { mountPath: '/' });
 
 fs.writeFile('/a.txt', 'hi', 'utf8', (err) => {
   if (err) return console.error(err);
@@ -81,16 +89,19 @@ fs.writeFile('/a.txt', 'hi', 'utf8', (err) => {
 
 ## 主系统使用指南
 
-主系统（`fs`）是本库的核心，提供了一套完整的浏览器端文件系统 API。无论你使用何种存储后端（IndexedDB、内存或插件），这些 API 的使用方式都是一致的。
+主系统（`fs`）是本库的核心，提供了一套完整的浏览器端文件系统 API。无论你显式挂载何种存储后端（IndexedDB、内存或其他插件），这些 API 的使用方式都是一致的。
 
 ### 初始化
 
-本库在首次调用时会自动初始化 IndexedDB 数据库并创建根目录 `/`，通常情况下你无需手动处理初始化：
+本库不会自动挂载任何存储后端。调用文件 API 前必须先注册并启用一个存储插件；如果没有插件匹配路径，`fs` 操作会失败。持久化存储的常规做法是显式安装并挂载 IndexedDB 插件：
 
 ```ts
-import fs from '@system-ui-js/file-system-browser';
+import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
 
-// 第一次调用任意 API 时自动初始化
+registerPlugin('indexeddb', createIndexedDBStoragePlugin);
+usePlugin('indexeddb', { mountPath: '/' });
+
 await fs.promises.mkdir('/mydir');
 ```
 
@@ -481,7 +492,8 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 
 主包默认**不挂载任何存储插件**。这意味着：
 
-- 如果不使用插件，所有 `fs` 操作将使用内置的 IndexedDB 实现（默认行为）
+- 如果不使用插件，`fs` 操作没有可用存储后端，会作为配置错误失败
+- IndexedDB 持久化也需要显式安装并挂载 `@system-ui-js/file-system-plugin-indexeddb`
 - 使用插件可以将不同路径映射到不同的存储后端（如 `/webdav` → 远程服务器，`/memory` → 内存）
 - 插件让你能够扩展文件系统，接入 WebDAV、自定义 API、网盘等外部存储
 
@@ -490,11 +502,8 @@ const infoBig = await fs.promises.diskUsage({ bigint: true });
 使用插件只需要三个步骤：**注册** → **启用** → **使用**：
 
 ```ts
-import {
-  registerPlugin,
-  usePlugin,
-  createIndexedDBStoragePlugin,
-} from '@system-ui-js/file-system-browser';
+import fs, { registerPlugin, usePlugin } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
 
 // 第 1 步：注册插件工厂（仅登记，不激活）
 registerPlugin('indexeddb', createIndexedDBStoragePlugin);
@@ -549,22 +558,22 @@ await fs.promises.rename('/data/a.txt', '/data/b.txt');
 await fs.promises.rename('/data/a.txt', '/memory/b.txt'); // Error!
 ```
 
-### 内置存储插件
+### 官方存储插件
 
 #### IndexedDB 插件
 
-将路径映射到内置 IndexedDB 存储。与默认行为完全一致，但可以通过插件机制统一管理：
+将路径映射到 IndexedDB 持久化存储。IndexedDB 不再是隐藏默认行为，必须通过插件机制显式注册和挂载：
 
 ```ts
 import {
   registerPlugin,
   usePlugin,
-  createIndexedDBStoragePlugin,
 } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
 
-// 方式一：Catch-all 模式（兼容旧代码，接管所有路径）
+// 方式一：根挂载（推荐，作为持久化存储兜底）
 registerPlugin('indexeddb', createIndexedDBStoragePlugin);
-usePlugin('indexeddb', {});
+usePlugin('indexeddb', { mountPath: '/' });
 
 // 方式二：挂载到指定路径（推荐用于多后端共存）
 registerPlugin('indexeddb', createIndexedDBStoragePlugin);
@@ -580,8 +589,8 @@ usePlugin('indexeddb', { mountPath: '/data' });
 import {
   registerPlugin,
   usePlugin,
-  createMemoryStoragePlugin,
 } from '@system-ui-js/file-system-browser';
+import { createMemoryStoragePlugin } from '@system-ui-js/file-system-plugin-memory';
 
 registerPlugin('memory', createMemoryStoragePlugin);
 usePlugin('memory', { mountPath: '/tmp' });
@@ -604,8 +613,8 @@ unregisterPlugin('memory');
 import {
   registerPlugin,
   usePlugin,
-  createWebDAVStoragePlugin,
 } from '@system-ui-js/file-system-browser';
+import { createWebDAVStoragePlugin } from '@system-ui-js/file-system-plugin-webdav';
 
 registerPlugin('webdav', createWebDAVStoragePlugin);
 usePlugin('webdav', {
@@ -652,10 +661,10 @@ const files = await fs.promises.readdir('/webdav/projects');
 import fs, {
   registerPlugin,
   usePlugin,
-  createIndexedDBStoragePlugin,
-  createMemoryStoragePlugin,
-  createWebDAVStoragePlugin,
 } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
+import { createMemoryStoragePlugin } from '@system-ui-js/file-system-plugin-memory';
+import { createWebDAVStoragePlugin } from '@system-ui-js/file-system-plugin-webdav';
 
 // 注册所有需要的插件
 registerPlugin('indexeddb', createIndexedDBStoragePlugin);
@@ -885,11 +894,11 @@ await sorter.onEntriesMoved('/from', '/to', ['moved.txt']);
 import fs, {
   registerPlugin,
   usePlugin,
-  createIndexedDBStoragePlugin,
-  createMemoryStoragePlugin,
   sorter,
   type Dirent,
 } from '@system-ui-js/file-system-browser';
+import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb';
+import { createMemoryStoragePlugin } from '@system-ui-js/file-system-plugin-memory';
 
 class FileManager {
   private currentPath = '/';
@@ -995,9 +1004,31 @@ yarn test:unit -- --run
 yarn test:e2e
 ```
 
+## 迁移说明
+
+### v0.x → v1.x：插件工厂迁移到独立包
+
+从 v1.x 开始，核心包 `@system-ui-js/file-system-browser` 不再内置存储插件工厂。如果你之前直接从核心包导入插件工厂，需要改为安装对应的独立插件包：
+
+| 插件 | 新导入方式 |
+|------|-----------|
+| IndexedDB | `import { createIndexedDBStoragePlugin } from '@system-ui-js/file-system-plugin-indexeddb'` |
+| 内存 | `import { createMemoryStoragePlugin } from '@system-ui-js/file-system-plugin-memory'` |
+| WebDAV | `import { createWebDAVStoragePlugin } from '@system-ui-js/file-system-plugin-webdav'` |
+
+安装对应插件包：
+
+```bash
+yarn add @system-ui-js/file-system-plugin-indexeddb
+yarn add @system-ui-js/file-system-plugin-memory
+yarn add @system-ui-js/file-system-plugin-webdav
+```
+
+核心包的插件管理 API（`registerPlugin`、`usePlugin`、`unregisterPlugin`）保持不变，仍从 `@system-ui-js/file-system-browser` 导入。
+
 ## 兼容性与注意事项
 
-- 本库面向浏览器环境（依赖 `indexedDB`）；不同浏览器的存储配额与清理策略不同，建议配合 `requestPersistentStorage()`。
+- 本库面向浏览器环境；使用 IndexedDB 持久化插件时依赖 `indexedDB`，不同浏览器的存储配额与清理策略不同，建议配合 `requestPersistentStorage()`。
 - 路径使用 POSIX 风格：会自动补全开头 `/`，并去掉末尾多余的 `/`（根目录 `/` 除外）。
 - 编码支持为子集：`readFile/writeFile/appendFile` 的字符串编码目前主要支持 `utf8/utf-8` 与 `base64`，其他编码会抛出错误。
 - 流与监控为 best-effort 实现：`createWriteStream` 在内存中累积数据，`end()` 时一次性落盘；`watch/watchFile` 为进程内事件分发，并且仅监听"精确路径"（不会像真实文件系统那样自动监听目录下的子项变更）。

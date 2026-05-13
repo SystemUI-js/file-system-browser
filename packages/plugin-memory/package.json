@@ -1,0 +1,30 @@
+{
+  "name": "@system-ui-js/file-system-plugin-memory",
+  "version": "0.1.0",
+  "description": "Memory storage plugin for @system-ui-js/file-system-browser",
+  "type": "module",
+  "main": "./dist/file-system-plugin-memory.umd.js",
+  "module": "./dist/file-system-plugin-memory.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": "./dist/file-system-plugin-memory.es.js",
+      "require": "./dist/file-system-plugin-memory.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "pack:workspace": "yarn pack --filename ../../dist-packages/file-system-plugin-memory.tgz"
+  },
+  "keywords": ["file-system", "browser", "plugin", "memory"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@system-ui-js/file-system-browser": "^0.1.0"
+  }
+}
