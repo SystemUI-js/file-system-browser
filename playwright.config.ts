@@ -16,9 +16,6 @@ export default defineConfig({
       name: 'chromium',
       use: {
         ...devices['Desktop Chrome'],
-        launchOptions: {
-          executablePath: '/tmp/chrome-extract/opt/google/chrome/chrome',
-        },
       },
     },
   ],

@@ -13,7 +13,8 @@ export default defineConfig({
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'FileSystem',
       formats: ['es', 'umd'],
-      fileName: (format) => `file-system.${format}.js`,
+      fileName: (format) =>
+        format === 'umd' ? 'file-system.umd.cjs' : 'file-system.es.js',
     },
     rollupOptions: {
       external: [],

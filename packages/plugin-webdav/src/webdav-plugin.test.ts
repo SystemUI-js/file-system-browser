@@ -254,6 +254,50 @@ describe('WebDAV storage plugin', () => {
     );
   });
 
+  it('forwards recursive directory creation to WebDAV', async () => {
+    // Given: a WebDAV-backed mount.
+    const { client, handlers } = makePlugin();
+
+    // When: callers request recursive directory creation.
+    await handlers.mkdir('/parent/child', { recursive: true });
+
+    // Then: the WebDAV client receives the recursive option.
+    expect(client.createDirectory).toHaveBeenCalledWith(
+      '/remote/root/parent/child',
+      { recursive: true }
+    );
+  });
+
+  it('ignores missing paths when rm uses force', async () => {
+    // Given: the WebDAV server reports that the path is missing.
+    const { client, handlers } = makePlugin();
+    client.deleteFile.mockRejectedValue(
+      Object.assign(new Error('Invalid response: 404 Not Found'), {
+        status: 404,
+      })
+    );
+
+    // When/Then: force makes removal idempotent.
+    await expect(
+      handlers.rm('/missing.txt', { force: true })
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not hide structured non-404 errors when rm uses force', async () => {
+    // Given: an upstream failure whose message happens to mention 404.
+    const { client, handlers } = makePlugin();
+    client.deleteFile.mockRejectedValue(
+      Object.assign(new Error('503 response included prior 404 details'), {
+        status: 503,
+      })
+    );
+
+    // When/Then: force still surfaces failures other than a missing target.
+    await expect(handlers.rm('/file.txt', { force: true })).rejects.toThrow(
+      "WebDAV rm request failed for '/remote/root/file.txt'"
+    );
+  });
+
   it('throws exact deterministic ENOTSUP errors for unsupported operations', async () => {
     const { handlers } = makePlugin();
     const unsupportedCases: Array<[string, unknown[], string]> = [

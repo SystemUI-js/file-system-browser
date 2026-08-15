@@ -3,14 +3,13 @@
   "version": "0.1.0",
   "description": "IndexedDB storage plugin for @system-ui-js/file-system-browser",
   "type": "module",
-  "main": "./dist/file-system-plugin-indexeddb.umd.js",
+  "main": "./dist/file-system-plugin-indexeddb.umd.cjs",
   "module": "./dist/file-system-plugin-indexeddb.es.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
       "import": "./dist/file-system-plugin-indexeddb.es.js",
-      "require": "./dist/file-system-plugin-indexeddb.umd.js",
+      "require": "./dist/file-system-plugin-indexeddb.umd.cjs",
       "types": "./dist/index.d.ts"
     }
   },

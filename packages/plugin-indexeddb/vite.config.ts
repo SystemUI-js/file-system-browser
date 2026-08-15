@@ -9,7 +9,10 @@ export default defineConfig({
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'FileSystemPluginIndexedDB',
       formats: ['es', 'umd'],
-      fileName: (format) => `file-system-plugin-indexeddb.${format}.js`,
+      fileName: (format) =>
+        format === 'umd'
+          ? 'file-system-plugin-indexeddb.umd.cjs'
+          : 'file-system-plugin-indexeddb.es.js',
     },
     rollupOptions: {
       external: ['@system-ui-js/file-system-browser'],

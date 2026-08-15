@@ -32,7 +32,10 @@ type WebDAVClient = {
     options: { format: 'binary' }
   ): Promise<unknown>;
   putFileContents(path: string, data: Uint8Array): Promise<unknown>;
-  createDirectory(path: string): Promise<unknown>;
+  createDirectory(
+    path: string,
+    options?: { recursive?: boolean }
+  ): Promise<unknown>;
   getDirectoryContents(
     path: string
   ): Promise<WebDAVFileStat[] | WebDAVFileStat>;
@@ -149,6 +152,17 @@ async function webdavCall<T>(
   } catch (error) {
     throw readableError(error, operation, path);
   }
+}
+
+function isNotFound(error: unknown): boolean {
+  if (typeof error === 'object' && error !== null) {
+    if ('status' in error) return error.status === 404;
+    if ('statusCode' in error) return error.statusCode === 404;
+  }
+  return (
+    error instanceof Error &&
+    /^(?:Invalid response:\s*)?404(?:\s|$)/i.test(error.message)
+  );
 }
 
 export const createWebDAVStoragePlugin: FsPluginFactory<
@@ -293,13 +307,33 @@ export const createWebDAVStoragePlugin: FsPluginFactory<
           await webdavCall('lstat', remote, () => client.stat(remote))
         );
       },
-      async mkdir(path: string) {
+      async mkdir(
+        path: string,
+        options?:
+          | number
+          | string
+          | { recursive?: boolean; mode?: number | string }
+      ) {
         const remote = toRemote(path);
-        await webdavCall('mkdir', remote, () => client.createDirectory(remote));
+        const recursive =
+          typeof options === 'object' ? options.recursive : undefined;
+        await webdavCall('mkdir', remote, () =>
+          recursive === undefined
+            ? client.createDirectory(remote)
+            : client.createDirectory(remote, { recursive })
+        );
       },
-      async rm(path: string) {
+      async rm(
+        path: string,
+        options?: { recursive?: boolean; force?: boolean }
+      ) {
         const remote = toRemote(path);
-        await webdavCall('rm', remote, () => client.deleteFile(remote));
+        try {
+          await client.deleteFile(remote);
+        } catch (error) {
+          if (options?.force && isNotFound(error)) return;
+          throw readableError(error, 'rm', remote);
+        }
       },
       async unlink(path: string) {
         const remote = toRemote(path);
