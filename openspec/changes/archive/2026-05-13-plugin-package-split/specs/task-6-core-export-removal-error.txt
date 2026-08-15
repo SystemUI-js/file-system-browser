@@ -1,0 +1,6 @@
+Evidence: core exports are removed
+
+Command: grep -En "export.*create(Memory|IndexedDB|WebDAV)StoragePlugin" packages/core/src/index.ts
+Result: No matches found
+
+Conclusion: The core package index.ts does NOT export createMemoryStoragePlugin, createIndexedDBStoragePlugin, or createWebDAVStoragePlugin.

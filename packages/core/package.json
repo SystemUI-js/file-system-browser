@@ -1,0 +1,48 @@
+{
+  "name": "@system-ui-js/file-system-browser",
+  "version": "0.1.0",
+  "description": "A WebDAV-like file system interface using IndexedDB for browser-based file storage",
+  "type": "module",
+  "main": "./dist/file-system.umd.js",
+  "module": "./dist/file-system.es.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "source": "./src/index.ts",
+      "import": "./dist/file-system.es.js",
+      "require": "./dist/file-system.umd.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "pack:workspace": "yarn pack --filename ../../dist-packages/file-system-browser.tgz"
+  },
+  "keywords": [
+    "webdav",
+    "indexeddb",
+    "file-system",
+    "browser",
+    "storage"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/system-ui-js/file-system.git"
+  },
+  "bugs": {
+    "url": "https://github.com/system-ui-js/file-system/issues"
+  },
+  "homepage": "https://github.com/system-ui-js/file-system#readme",
+  "devDependencies": {
+    "@system-ui-js/file-system-plugin-indexeddb": "0.1.0",
+    "@system-ui-js/file-system-plugin-memory": "0.1.0",
+    "@system-ui-js/file-system-plugin-webdav": "0.1.0"
+  }
+}

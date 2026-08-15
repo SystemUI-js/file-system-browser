@@ -1,0 +1,22 @@
+Task 5 WebDAV plugin extraction evidence - 2026-05-07
+
+Command: node -e "const core=require('./packages/core/package.json'); const pkg=require('./packages/plugin-webdav/package.json'); if(core.dependencies && core.dependencies.webdav) process.exit(1); if(pkg.name!=='@system-ui-js/file-system-plugin-webdav') process.exit(2); if(!pkg.dependencies || !pkg.dependencies.webdav) process.exit(3); console.log('PASS')"
+Result: PASS
+
+Command: npm pack --json (cwd: packages/plugin-webdav)
+Result: succeeded
+Package: @system-ui-js/file-system-plugin-webdav@0.1.0
+Filename: system-ui-js-file-system-plugin-webdav-0.1.0.tgz
+
+Command: yarn build
+Result: succeeded
+Evidence: @system-ui-js/file-system-plugin-webdav built dist/file-system-plugin-webdav.es.js and dist/file-system-plugin-webdav.umd.js; all workspace builds completed.
+
+Command: yarn test:unit -- --run
+Result: succeeded
+Evidence: Test Files 6 passed (6); Tests 83 passed (83).
+
+LSP diagnostics:
+- packages/plugin-webdav/src/index.ts: clean
+- packages/plugin-webdav/src/webdav-plugin.test.ts: clean
+- packages/plugin-webdav/src/types/webdav.d.ts: clean

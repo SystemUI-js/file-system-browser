@@ -1,0 +1,91 @@
+yarn run v1.22.22
+(node:2189804) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ yarn workspaces run build
+(node:2189821) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+> @system-ui-js/file-system-browser
+(node:2189832) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 9 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+[vite:dts] Declaration files built in 1201ms.
+
+dist/file-system.es.js  203.44 kB │ gzip: 53.77 kB
+Entry module "src/index.ts" is using named and default exports together. Consumers of your bundle will have to use `FileSystem.default` to access the default export, which may not be what you want. Use `output.exports: "named"` to disable this warning.
+dist/file-system.umd.js  150.67 kB │ gzip: 47.55 kB
+✓ built in 1.74s
+
+> @system-ui-js/file-system-plugin-indexeddb
+(node:2189935) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+dist/file-system-plugin-indexeddb.es.js  0.96 kB │ gzip: 0.35 kB
+[vite:dts] Declaration files built in 726ms.
+
+dist/file-system-plugin-indexeddb.umd.js  1.07 kB │ gzip: 0.48 kB
+✓ built in 783ms
+
+> @system-ui-js/file-system-plugin-memory
+(node:2190036) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+dist/file-system-plugin-memory.es.js  15.82 kB │ gzip: 3.95 kB
+[vite:dts] Declaration files built in 864ms.
+
+dist/file-system-plugin-memory.umd.js  11.10 kB │ gzip: 3.55 kB
+✓ built in 1.00s
+
+> @system-ui-js/file-system-plugin-webdav
+(node:2190144) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 2 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+[vite:dts] Declaration files built in 853ms.
+
+dist/file-system-plugin-webdav.es.js  148.53 kB │ gzip: 40.74 kB
+dist/file-system-plugin-webdav.umd.js  111.65 kB │ gzip: 36.73 kB
+✓ built in 1.33s
+Done in 12.53s.
+yarn run v1.22.22
+(node:2189803) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+warning From Yarn 1.0 onwards, scripts don't require "--" for options to be forwarded. In a future version, any explicit "--" will be forwarded as-is to the scripts.
+$ vitest --config vitest.config.ts --run
+
+ RUN  v4.1.5 /home/zhangxiao/frontend/worktrees/file-system-browser/feature-plugin-system
+
+
+ Test Files  6 passed (6)
+      Tests  83 passed (83)
+   Start at  23:10:11
+   Duration  1.28s (transform 1.10s, setup 173ms, import 1.42s, tests 132ms, environment 4.50s)
+
+Done in 1.68s.

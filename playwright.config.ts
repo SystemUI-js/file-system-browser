@@ -14,12 +14,17 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: {
+          executablePath: '/tmp/chrome-extract/opt/google/chrome/chrome',
+        },
+      },
     },
   ],
   webServer: {
     command: 'yarn dev --port 9974',
     url: 'http://localhost:9974',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
   },
 });

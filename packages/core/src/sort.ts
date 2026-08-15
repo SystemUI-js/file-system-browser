@@ -191,7 +191,9 @@ class SortService {
       // 列表模式：按 manualOrder 排
       const orderList = cfg.manualOrder || [];
       const rank = new Map<string, number>();
-      orderList.forEach((k, i) => rank.set(k, i));
+      orderList.forEach((k, i) => {
+        rank.set(k, i);
+      });
       return arr.sort(
         (a, b) =>
           (rank.get(this.keyOf(a)) ?? Number.MAX_SAFE_INTEGER) -

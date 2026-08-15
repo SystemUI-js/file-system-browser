@@ -10,7 +10,7 @@ export default defineConfig({
   ],
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: resolve(__dirname, 'packages/core/src/index.ts'),
       name: 'FileSystem',
       formats: ['es', 'umd'],
       fileName: (format) => `file-system.${format}.js`,

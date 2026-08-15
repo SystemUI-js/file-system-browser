@@ -1,0 +1,41 @@
+[
+  {
+    "id": "@system-ui-js/file-system-plugin-indexeddb@0.1.0",
+    "name": "@system-ui-js/file-system-plugin-indexeddb",
+    "version": "0.1.0",
+    "size": 1505,
+    "unpackedSize": 3597,
+    "shasum": "b4e668c18f8daed923c228b3ac0e5f7633edf3e0",
+    "integrity": "sha512-7mnH0AMewcc+Wl+p68rUaK+Gnthaxl+v5jqQ0JDOqqWr4obABpQX2Vzq/UvX5bdejXyIQY7COI0tdn7u1xR+sA==",
+    "filename": "system-ui-js-file-system-plugin-indexeddb-0.1.0.tgz",
+    "files": [
+      {
+        "path": "dist/file-system-plugin-indexeddb.es.js",
+        "size": 959,
+        "mode": 420
+      },
+      {
+        "path": "dist/file-system-plugin-indexeddb.umd.js",
+        "size": 1065,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.d.ts",
+        "size": 279,
+        "mode": 420
+      },
+      {
+        "path": "dist/index.d.ts.map",
+        "size": 267,
+        "mode": 420
+      },
+      {
+        "path": "package.json",
+        "size": 1027,
+        "mode": 420
+      }
+    ],
+    "entryCount": 5,
+    "bundled": []
+  }
+]

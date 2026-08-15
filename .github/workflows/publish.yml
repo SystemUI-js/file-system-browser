@@ -25,7 +25,29 @@ jobs:
       - name: Build
         run: yarn build
 
-      - name: Publish to NPM
-        run: yarn publish --access public
+      - name: Run unit tests
+        run: yarn test:unit -- --run
+
+      - name: Run e2e tests
+        run: yarn test:e2e
+
+      - name: Pack smoke check
+        run: |
+          for pkg in packages/core packages/plugin-memory packages/plugin-indexeddb packages/plugin-webdav; do
+            echo "Packing $pkg"
+            (cd "$pkg" && npm pack --json --dry-run)
+          done
+
+      - name: Publish core package
+        run: cd packages/core && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish plugin packages
+        run: |
+          for pkg in packages/plugin-memory packages/plugin-indexeddb packages/plugin-webdav; do
+            echo "Publishing $pkg"
+            (cd "$pkg" && npm publish --access public)
+          done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

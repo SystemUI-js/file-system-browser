@@ -1,0 +1,6 @@
+Evidence: core is NOT bundled into memory plugin
+
+Command: grep -c "registerPlugin" packages/plugin-memory/dist/file-system-plugin-memory.es.js
+Result: 0
+
+Conclusion: The memory plugin bundle does NOT contain registerPlugin, meaning the core is not bundled into it.

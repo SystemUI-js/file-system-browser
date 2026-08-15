@@ -201,9 +201,11 @@ function emitWatch(
 // FD table
 type FD = {
   path: string;
+  localPath?: string;
   position: number;
   flags: string;
   plugin?: ActivePlugin;
+  mountId?: string;
 };
 const fdTable = new Map<number, FD>();
 let nextFd = 3; // 0,1,2 reserved
@@ -211,10 +213,18 @@ let nextFd = 3; // 0,1,2 reserved
 function allocateFd(
   path: string,
   flags: string,
-  plugin?: ActivePlugin
+  plugin?: ActivePlugin,
+  localPath?: string
 ): number {
   const fd = nextFd++;
-  fdTable.set(fd, { path: norm(path), position: 0, flags, plugin });
+  fdTable.set(fd, {
+    path: norm(path),
+    localPath: localPath ? norm(localPath) : undefined,
+    position: 0,
+    flags,
+    plugin,
+    mountId: plugin?.mountId,
+  });
   return fd;
 }
 
@@ -454,7 +464,7 @@ async function fdRead(
 ) {
   const fd = fdTable.get(fdNum);
   if (!fd) throw new Error(`EBADF: bad file descriptor, read`);
-  const entry = await db.get(fd.path);
+  const entry = await db.get(fd.localPath ?? fd.path);
   if (!entry || entry.type !== 'file') return { bytesRead: 0, buffer };
   const data = new Uint8Array(entry.content || new ArrayBuffer(0));
   const start = position ?? fd.position;
@@ -478,7 +488,8 @@ async function fdWrite(
     typeof bufOrStr === 'string'
       ? BufferPolyfill.from(bufOrStr)
       : new BufferPolyfill(bufOrStr);
-  let data = await readFileInternal(fd.path).catch(() => new Uint8Array());
+  const targetPath = fd.localPath ?? fd.path;
+  let data = await readFileInternal(targetPath).catch(() => new Uint8Array());
   const start = position ?? fd.position;
   const needed = start + (length ?? buf.length);
   if (data.length < needed) {
@@ -491,7 +502,7 @@ async function fdWrite(
       ? buf.subarray(offset, offset + length)
       : buf;
   data.set(toWrite, start);
-  await writeFileInternal(fd.path, data);
+  await writeFileInternal(targetPath, data);
   if (position == null) fd.position = start + toWrite.length;
   return { bytesWritten: toWrite.length, buffer: bufOrStr };
 }
@@ -536,7 +547,7 @@ const corePromises = {
     if (typeof path === 'number') {
       const fd = fdTable.get(path);
       if (!fd) throw new Error(`EBADF: bad file descriptor, read`);
-      const buf = await readFileInternal(fd.path);
+      const buf = await readFileInternal(fd.localPath ?? fd.path);
       const { encoding } = parseEncOpt(options);
       return outByEncoding(buf, encoding || undefined);
     }
@@ -566,7 +577,7 @@ const corePromises = {
     if (typeof file === 'number') {
       const fd = fdTable.get(file);
       if (!fd) throw new Error(`EBADF: bad file descriptor, write`);
-      await writeFileInternal(fd.path, buf);
+      await writeFileInternal(fd.localPath ?? fd.path, buf);
       return;
     }
     await writeFileInternal(file, buf);
@@ -592,7 +603,8 @@ const corePromises = {
         : BufferPolyfill.fromString(String(data), enc || 'utf8');
     const targetPath =
       typeof file === 'number'
-        ? (fdTable.get(file)?.path ??
+        ? (fdTable.get(file)?.localPath ??
+          fdTable.get(file)?.path ??
           (() => {
             throw new Error('EBADF');
           })())
@@ -922,6 +934,8 @@ export interface FsPluginContext {
 
 export interface FsPlugin {
   match: RegExp;
+  mountPath?: string;
+  mountId?: string;
   handlers?: PluginHandlers;
 }
 
@@ -933,6 +947,8 @@ export type FsPluginFactory<TOptions = unknown> = (
 interface ActivePlugin {
   name: string;
   match: RegExp;
+  mountPath?: string;
+  mountId: string;
   handlers: PluginHandlers;
 }
 
@@ -961,7 +977,13 @@ export function usePlugin<TOptions = unknown>(
     Buffer: BufferPolyfill,
     createFd: (path: string, flags: string = '') => {
       if (!holder.current) throw new Error('插件尚未初始化完成');
-      return allocateFd(path, flags, holder.current);
+      const localPath = norm(path);
+      return allocateFd(
+        toGlobalPath(holder.current, localPath),
+        flags,
+        holder.current,
+        localPath
+      );
     },
     releaseFd,
     baseWatch,
@@ -971,13 +993,26 @@ export function usePlugin<TOptions = unknown>(
     baseCreateWriteStream,
   };
   const plugin = factory(options, ctx);
+  const mountPath = normalizeMountPath(plugin.mountPath);
+  if (mountPath && activePlugins.some((p) => p.mountPath === mountPath)) {
+    throw new Error(`Duplicate plugin mount path: ${mountPath}`);
+  }
   const instance: ActivePlugin = {
     name,
     match: plugin.match,
+    mountPath,
+    mountId: plugin.mountId ?? (mountPath ? `${name}:${mountPath}` : name),
     handlers: plugin.handlers ?? {},
   };
   holder.current = instance;
-  activePlugins = [...activePlugins.filter((p) => p.name !== name), instance];
+  activePlugins = [
+    ...activePlugins.filter((p) =>
+      mountPath
+        ? !(p.name === name && p.mountPath === mountPath)
+        : p.name !== name
+    ),
+    instance,
+  ];
   return instance;
 }
 
@@ -990,20 +1025,170 @@ function normalizeAndTest(reg: RegExp, path: string): boolean {
   return reg.test(norm(path));
 }
 
+function normalizeMountPath(path?: string): string | undefined {
+  if (path == null) return undefined;
+  if (!path || (path !== '/' && path.endsWith('/'))) {
+    throw new Error(`Invalid plugin mount path: ${path}`);
+  }
+  path = norm(path);
+  if (path.split('/').filter(Boolean).length > 1) {
+    throw new Error('mountPath 必须是根目录下的一级路径，例如 /memory');
+  }
+  return path;
+}
+
+function isMountBoundary(path: string, mountPath: string): boolean {
+  if (mountPath === '/') return path.startsWith('/');
+  return path === mountPath || path.startsWith(`${mountPath}/`);
+}
+
+function toLocalPath(plugin: ActivePlugin, path: string): string {
+  path = norm(path);
+  if (!plugin.mountPath) return path;
+  if (path === plugin.mountPath) return '/';
+  return norm(path.slice(plugin.mountPath.length));
+}
+
+function toGlobalPath(plugin: ActivePlugin, localPath: string): string {
+  localPath = norm(localPath);
+  if (!plugin.mountPath) return localPath;
+  if (localPath === '/') return plugin.mountPath;
+  return norm(`${plugin.mountPath}${localPath}`);
+}
+
+function resolvePluginForPath(path: string): ActivePlugin | undefined {
+  const normalized = norm(path);
+  const mounted = activePlugins.find(
+    (ap) =>
+      ap.mountPath &&
+      ap.mountPath !== '/' &&
+      isMountBoundary(normalized, ap.mountPath)
+  );
+  if (mounted) return mounted;
+  const rootMounted = activePlugins.find((ap) => ap.mountPath === '/');
+  if (rootMounted && isMountBoundary(normalized, '/')) return rootMounted;
+  return activePlugins.find(
+    (ap) => !ap.mountPath && normalizeAndTest(ap.match, normalized)
+  );
+}
+
+function mountedRootForPath(path: string): ActivePlugin | undefined {
+  const normalized = norm(path);
+  return activePlugins.find((ap) => ap.mountPath === normalized);
+}
+
+function makeVirtualDirectoryStats(path: string): Stats {
+  const now = Date.now();
+  return new Stats({
+    path: norm(path),
+    name: baseOf(path),
+    type: 'directory',
+    size: 0,
+    createdAt: now,
+    modifiedAt: now,
+    parentPath: parentOf(path),
+  });
+}
+
+function assertNotMountRoot(path: string, operation: string): void {
+  const mounted = mountedRootForPath(path);
+  if (mounted) {
+    throw new Error(
+      `EBUSY: cannot ${operation} mount root '${mounted.mountPath}'`
+    );
+  }
+}
+
+function mountRootNames(): string[] {
+  // T1 enforces root-only mounts, so all mountPaths here are already root-level.
+  // The parentOf() filter remains as a defensive safety check.
+  return Array.from(
+    new Set(
+      activePlugins
+        .filter((ap) => ap.mountPath && parentOf(ap.mountPath) === '/')
+        .map((ap) => baseOf(ap.mountPath as string))
+    )
+  );
+}
+
+type PluginResolution = {
+  plugin: ActivePlugin;
+  localPaths: Array<string | undefined>;
+};
+
+function pathArgumentIndexes(
+  method: keyof CorePromises | UtilityMethod
+): number[] {
+  switch (method) {
+    case 'rename':
+    case 'copyFile':
+    case 'link':
+      return [0, 1];
+    case 'symlink':
+      return [1];
+    case 'readFile':
+    case 'writeFile':
+    case 'appendFile':
+    case 'mkdir':
+    case 'readdir':
+    case 'rm':
+    case 'unlink':
+    case 'rmdir':
+    case 'stat':
+    case 'lstat':
+    case 'readlink':
+    case 'exists':
+    case 'access':
+    case 'nlink':
+    case 'open':
+    case 'watch':
+    case 'watchFile':
+    case 'unwatchFile':
+    case 'createReadStream':
+    case 'createWriteStream':
+      return [0];
+    default:
+      return [];
+  }
+}
+
+function translatePathArguments(
+  method: keyof CorePromises | UtilityMethod,
+  args: unknown[],
+  resolution: PluginResolution
+): unknown[] {
+  const translated = [...args];
+  const indexes = pathArgumentIndexes(method);
+  indexes.forEach((argIndex, pathIndex) => {
+    if (typeof translated[argIndex] === 'string') {
+      translated[argIndex] =
+        resolution.localPaths[pathIndex] ?? translated[argIndex];
+    }
+  });
+  return translated;
+}
+
 function resolvePluginFromPaths(
   paths: Array<string | undefined>
-): ActivePlugin | undefined {
-  const matched = paths
-    .filter((p): p is string => !!p)
-    .map((p) => activePlugins.find((ap) => normalizeAndTest(ap.match, p)))
-    .filter((p): p is ActivePlugin => !!p);
-  if (!matched.length) return undefined;
-  const first = matched[0].name;
-  const allSame = matched.every((m) => m.name === first);
+): PluginResolution | undefined {
+  const presentPaths = paths.filter((p): p is string => !!p);
+  const resolved = presentPaths
+    .map((path) => ({ path, plugin: resolvePluginForPath(path) }))
+    .filter((p): p is { path: string; plugin: ActivePlugin } => !!p.plugin);
+  if (!resolved.length) return undefined;
+  if (resolved.length !== presentPaths.length) {
+    throw new Error('路径同时匹配到多个不同的插件，请检查拦截规则');
+  }
+  const first = resolved[0].plugin.mountId;
+  const allSame = resolved.every((m) => m.plugin.mountId === first);
   if (!allSame) {
     throw new Error('路径同时匹配到多个不同的插件，请检查拦截规则');
   }
-  return matched[0];
+  const plugin = resolved[0].plugin;
+  return {
+    plugin,
+    localPaths: paths.map((p) => (p ? toLocalPath(plugin, p) : undefined)),
+  };
 }
 
 function runWithPluginPromise(
@@ -1030,13 +1215,29 @@ function runWithPluginPromise(
   paths: Array<string | undefined>,
   ...args: unknown[]
 ): unknown {
-  const plugin = resolvePluginFromPaths(paths);
-  const handler = plugin?.handlers[method];
+  const resolution = resolvePluginFromPaths(paths);
+  const handler = resolution?.plugin.handlers[method];
   if (typeof handler === 'function') {
-    return (handler as (...a: unknown[]) => unknown)(...args);
+    return (handler as (...a: unknown[]) => unknown)(
+      ...translatePathArguments(method, args, resolution!)
+    );
   }
-  const base = corePromises[method] as (...a: unknown[]) => unknown;
-  return base(...args);
+  throw new Error('No storage plugin mounted for this path');
+}
+
+function runWithFdPluginPromise<K extends keyof CorePromises>(
+  method: K,
+  fdNum: number,
+  ...args: Parameters<CorePromises[K]>
+): ReturnType<CorePromises[K]> {
+  const fd = fdTable.get(fdNum);
+  const handler = fd?.plugin?.handlers[method];
+  if (typeof handler === 'function') {
+    return (handler as (...a: unknown[]) => unknown)(...args) as ReturnType<
+      CorePromises[K]
+    >;
+  }
+  throw new Error('No storage plugin mounted for this path');
 }
 
 type UtilityMethod = keyof UtilityHandlers;
@@ -1046,24 +1247,18 @@ function runWithPluginUtility<K extends UtilityMethod>(
   paths: Array<string | undefined>,
   ...args: Parameters<UtilityHandlers[K]>
 ): ReturnType<UtilityHandlers[K]> {
-  const plugin = resolvePluginFromPaths(paths);
-  const handler = plugin?.handlers[method] as
+  const resolution = resolvePluginFromPaths(paths);
+  const handler = resolution?.plugin.handlers[method] as
     | ((...a: Parameters<UtilityHandlers[K]>) => ReturnType<UtilityHandlers[K]>)
     | undefined;
   if (handler) {
-    return handler(...args);
+    return handler(
+      ...(translatePathArguments(method, args, resolution!) as Parameters<
+        UtilityHandlers[K]
+      >)
+    );
   }
-  const baseMap: UtilityHandlers = {
-    watch: baseWatch,
-    watchFile: baseWatchFile,
-    unwatchFile: baseUnwatchFile,
-    createReadStream: baseCreateReadStream,
-    createWriteStream: baseCreateWriteStream,
-  };
-  const base = baseMap[method] as unknown as (
-    ...a: Parameters<UtilityHandlers[K]>
-  ) => ReturnType<UtilityHandlers[K]>;
-  return base(...args);
+  throw new Error('No storage plugin mounted for this path');
 }
 
 type ReaddirOptionsWithTypes =
@@ -1073,6 +1268,34 @@ type ReaddirOptionsWithoutTypes =
   | { withFileTypes?: false; encoding?: BufferEncoding }
   | BufferEncoding
   | undefined;
+
+async function virtualRootReaddir(
+  options?: ReaddirOptionsWithTypes | ReaddirOptionsWithoutTypes
+): Promise<Array<Dirent | string>> {
+  const withFileTypes =
+    !!options && typeof options === 'object' && options.withFileTypes === true;
+  const entriesByName = new Map<string, Dirent | string>();
+  const legacy = resolvePluginFromPaths(['/']);
+  const legacyHandler = legacy?.plugin.handlers.readdir;
+  if (legacyHandler) {
+    const entries = (await (
+      legacyHandler as (
+        path: string,
+        options?: unknown
+      ) => Promise<Array<Dirent | string>>
+    )('/', options)) as Array<Dirent | string>;
+    for (const entry of entries) {
+      entriesByName.set(typeof entry === 'string' ? entry : entry.name, entry);
+    }
+  }
+  for (const name of mountRootNames()) {
+    entriesByName.set(
+      name,
+      withFileTypes ? new Dirent(name, 'directory') : name
+    );
+  }
+  return Array.from(entriesByName.values());
+}
 
 function readdirHook(
   path: string,
@@ -1086,6 +1309,9 @@ function readdirHook(
   path: string,
   options?: ReaddirOptionsWithTypes | ReaddirOptionsWithoutTypes
 ): Promise<Array<Dirent | string>> {
+  if (norm(path) === '/') {
+    return virtualRootReaddir(options);
+  }
   const optionValue = options;
   if (
     optionValue &&
@@ -1111,8 +1337,7 @@ function readdirHook(
 const promises: CorePromises = {
   readFile: (path: string | number, options?: EncOpt) => {
     if (typeof path === 'number') {
-      const fd = fdTable.get(path);
-      return runWithPluginPromise('readFile', [fd?.path], path, options);
+      return runWithFdPluginPromise('readFile', path, path, options);
     }
     return runWithPluginPromise('readFile', [path], path, options);
   },
@@ -1128,13 +1353,9 @@ const promises: CorePromises = {
       | BufferEncoding
       | null
   ) =>
-    runWithPluginPromise(
-      'writeFile',
-      [typeof file === 'number' ? fdTable.get(file)?.path : file],
-      file,
-      data,
-      options
-    ),
+    typeof file === 'number'
+      ? runWithFdPluginPromise('writeFile', file, file, data, options)
+      : runWithPluginPromise('writeFile', [file], file, data, options),
   appendFile: (
     file: string | number,
     data: Iterable<number>,
@@ -1147,65 +1368,100 @@ const promises: CorePromises = {
         }
       | null
   ) =>
-    runWithPluginPromise(
-      'appendFile',
-      [typeof file === 'number' ? fdTable.get(file)?.path : file],
-      file,
-      data,
-      options
-    ),
-  rename: (oldPath: string, newPath: string) =>
-    runWithPluginPromise('rename', [oldPath, newPath], oldPath, newPath),
-  copyFile: (src: string, dest: string) =>
-    runWithPluginPromise('copyFile', [src, dest], src, dest),
+    typeof file === 'number'
+      ? runWithFdPluginPromise('appendFile', file, file, data, options)
+      : runWithPluginPromise('appendFile', [file], file, data, options),
+  rename: (oldPath: string, newPath: string) => {
+    assertNotMountRoot(oldPath, 'rename');
+    assertNotMountRoot(newPath, 'rename over');
+    return runWithPluginPromise('rename', [oldPath, newPath], oldPath, newPath);
+  },
+  copyFile: (src: string, dest: string) => {
+    assertNotMountRoot(src, 'copy');
+    assertNotMountRoot(dest, 'copy over');
+    return runWithPluginPromise('copyFile', [src, dest], src, dest);
+  },
   mkdir: (
     path: string,
     options?: number | string | { recursive?: boolean; mode?: number | string }
-  ) => runWithPluginPromise('mkdir', [path], path, options),
+  ) => {
+    assertNotMountRoot(path, 'mkdir over');
+    return runWithPluginPromise('mkdir', [path], path, options);
+  },
   readdir: (() => {
     return readdirHook;
   })(),
-  rm: (path: string, options?: { recursive?: boolean; force?: boolean }) =>
-    runWithPluginPromise('rm', [path], path, options),
-  unlink: (path: string) => runWithPluginPromise('unlink', [path], path),
-  rmdir: (path: string, options?: { recursive?: boolean }) =>
-    runWithPluginPromise('rmdir', [path], path, options),
-  stat: (path: string) => runWithPluginPromise('stat', [path], path),
-  lstat: (path: string) => runWithPluginPromise('lstat', [path], path),
+  rm: (path: string, options?: { recursive?: boolean; force?: boolean }) => {
+    assertNotMountRoot(path, 'remove');
+    return runWithPluginPromise('rm', [path], path, options);
+  },
+  unlink: (path: string) => {
+    assertNotMountRoot(path, 'unlink');
+    return runWithPluginPromise('unlink', [path], path);
+  },
+  rmdir: (path: string, options?: { recursive?: boolean }) => {
+    assertNotMountRoot(path, 'remove');
+    return runWithPluginPromise('rmdir', [path], path, options);
+  },
+  stat: (path: string) =>
+    mountedRootForPath(path)
+      ? Promise.resolve(makeVirtualDirectoryStats(path))
+      : runWithPluginPromise('stat', [path], path),
+  lstat: (path: string) =>
+    mountedRootForPath(path)
+      ? Promise.resolve(makeVirtualDirectoryStats(path))
+      : runWithPluginPromise('lstat', [path], path),
   readlink: (path: string) => runWithPluginPromise('readlink', [path], path),
   symlink: (target: string, path: string) =>
     runWithPluginPromise('symlink', [path, target], target, path),
-  link: (existingPath: string, newPath: string) =>
-    runWithPluginPromise(
+  link: (existingPath: string, newPath: string) => {
+    assertNotMountRoot(existingPath, 'link');
+    assertNotMountRoot(newPath, 'link over');
+    return runWithPluginPromise(
       'link',
       [existingPath, newPath],
       existingPath,
       newPath
-    ),
-  exists: (path: string) => runWithPluginPromise('exists', [path], path),
+    );
+  },
+  exists: (path: string) =>
+    mountedRootForPath(path)
+      ? Promise.resolve(true)
+      : runWithPluginPromise('exists', [path], path),
   access: (path: string, mode?: number) =>
-    runWithPluginPromise('access', [path], path, mode),
+    mountedRootForPath(path)
+      ? Promise.resolve()
+      : runWithPluginPromise('access', [path], path, mode),
   nlink: (path: string) => runWithPluginPromise('nlink', [path], path),
   open: async (path: string, flags: string, mode?: number) => {
-    const plugin = resolvePluginFromPaths([path]);
+    const resolution = resolvePluginFromPaths([path]);
+    const plugin = resolution?.plugin;
     const handler = plugin?.handlers.open as CorePromises['open'] | undefined;
-    const res = handler
-      ? await handler(path, flags, mode)
-      : await corePromises.open(path, flags, mode);
+    if (!handler) {
+      throw new Error('No storage plugin mounted for this path');
+    }
+    const localPath = resolution?.localPaths[0] ?? path;
+    const res = await handler(localPath, flags, mode);
     const existed = fdTable.get(res.fd);
     if (plugin) {
       if (existed) {
-        fdTable.set(res.fd, { ...existed, plugin });
-      } else {
-        allocateFd(path, flags, plugin);
+        fdTable.set(res.fd, {
+          ...existed,
+          path: norm(path),
+          localPath: norm(localPath),
+          plugin,
+          mountId: plugin.mountId,
+        });
       }
     }
     if (!existed) {
       fdTable.set(res.fd, {
         path: norm(path),
+        localPath: norm(localPath),
         position: 0,
         flags,
         plugin,
+        mountId: plugin?.mountId,
       });
     }
     return res;
@@ -1216,16 +1472,7 @@ const promises: CorePromises = {
     offset: number,
     length: number,
     position: number | null
-  ) =>
-    runWithPluginPromise(
-      'read',
-      [fdTable.get(fd)?.path],
-      fd,
-      buffer,
-      offset,
-      length,
-      position
-    ),
+  ) => runWithFdPluginPromise('read', fd, fd, buffer, offset, length, position),
   write: (
     fd: number,
     buffer: Uint8Array | string,
@@ -1233,17 +1480,8 @@ const promises: CorePromises = {
     length?: number,
     position?: number | null
   ) =>
-    runWithPluginPromise(
-      'write',
-      [fdTable.get(fd)?.path],
-      fd,
-      buffer,
-      offset,
-      length,
-      position
-    ),
-  close: (fd: number) =>
-    runWithPluginPromise('close', [fdTable.get(fd)?.path], fd),
+    runWithFdPluginPromise('write', fd, fd, buffer, offset, length, position),
+  close: (fd: number) => runWithFdPluginPromise('close', fd, fd),
   requestPersistentStorage: () => corePromises.requestPersistentStorage(),
   diskUsage: (
     pathOrOptions?: string | { bigint?: boolean },
@@ -1292,12 +1530,20 @@ function baseCreateReadStream(path: string, opts?: { highWaterMark?: number }) {
       for (let i = 0; i < data.length; i += high) {
         const chunk = data.subarray(i, Math.min(i + high, data.length));
         while (paused) await new Promise((r) => setTimeout(r, 10));
-        listeners.data.forEach((h) => h(new BufferPolyfill(chunk)));
+        listeners.data.forEach((h) => {
+          h(new BufferPolyfill(chunk));
+        });
       }
-      listeners.end.forEach((h) => h());
-      listeners.close.forEach((h) => h());
+      listeners.end.forEach((h) => {
+        h();
+      });
+      listeners.close.forEach((h) => {
+        h();
+      });
     } catch (e) {
-      listeners.error.forEach((h) => h(e));
+      listeners.error.forEach((h) => {
+        h(e);
+      });
     }
   })();
   return {
@@ -1314,7 +1560,9 @@ function baseCreateReadStream(path: string, opts?: { highWaterMark?: number }) {
       return this;
     },
     close() {
-      listeners.close.forEach((h) => h());
+      listeners.close.forEach((h) => {
+        h();
+      });
     },
     pipe(dest: {
       write: (chunk: Uint8Array | BufferPolyfill | string) => unknown;
@@ -1351,9 +1599,13 @@ function baseCreateWriteStream(path: string) {
       if (chunk) await this.write(chunk);
       try {
         await writeFileInternal(path, buffer);
-        listeners.finish.forEach((h) => h());
+        listeners.finish.forEach((h) => {
+          h();
+        });
       } catch (e) {
-        listeners.error.forEach((h) => h(e));
+        listeners.error.forEach((h) => {
+          h(e);
+        });
       }
     },
     on<E extends keyof WriteStreamEvents>(ev: E, h: WriteStreamEvents[E]) {
