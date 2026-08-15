@@ -383,6 +383,11 @@ export const createMemoryStoragePlugin: FsPluginFactory<
         `ENOENT: no such file or directory, rename '${oldPath}' -> '${newPath}'`
       );
     }
+    if (entry.type === 'directory' && newPath.startsWith(`${oldPath}/`)) {
+      throw new Error(
+        `EINVAL: cannot move directory into itself, rename '${oldPath}' -> '${newPath}'`
+      );
+    }
     ensureParentDirectory(newPath, 'rename');
     const existing = entries.get(newPath);
     if (

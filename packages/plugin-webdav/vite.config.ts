@@ -9,7 +9,10 @@ export default defineConfig({
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'FileSystemPluginWebDAV',
       formats: ['es', 'umd'],
-      fileName: (format) => `file-system-plugin-webdav.${format}.js`,
+      fileName: (format) =>
+        format === 'umd'
+          ? 'file-system-plugin-webdav.umd.cjs'
+          : 'file-system-plugin-webdav.es.js',
     },
     rollupOptions: {
       external: ['@system-ui-js/file-system-browser'],

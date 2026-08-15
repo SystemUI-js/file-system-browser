@@ -9,7 +9,10 @@ export default defineConfig({
       entry: resolve(__dirname, 'src/index.ts'),
       name: 'FileSystemPluginMemory',
       formats: ['es', 'umd'],
-      fileName: (format) => `file-system-plugin-memory.${format}.js`,
+      fileName: (format) =>
+        format === 'umd'
+          ? 'file-system-plugin-memory.umd.cjs'
+          : 'file-system-plugin-memory.es.js',
     },
     rollupOptions: {
       external: ['@system-ui-js/file-system-browser'],

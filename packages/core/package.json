@@ -3,14 +3,13 @@
   "version": "0.1.0",
   "description": "A WebDAV-like file system interface using IndexedDB for browser-based file storage",
   "type": "module",
-  "main": "./dist/file-system.umd.js",
+  "main": "./dist/file-system.umd.cjs",
   "module": "./dist/file-system.es.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
       "import": "./dist/file-system.es.js",
-      "require": "./dist/file-system.umd.js",
+      "require": "./dist/file-system.umd.cjs",
       "types": "./dist/index.d.ts"
     }
   },

@@ -118,6 +118,22 @@ describe('memory storage plugin', () => {
     ).resolves.toBe('copy');
   });
 
+  it('rejects moving a directory into its own descendant', async () => {
+    // Given: a populated directory tree.
+    mountMemory();
+    await fs.promises.mkdir('/memory/a');
+    await fs.promises.writeFile('/memory/a/file.txt', 'safe', 'utf8');
+
+    // When: rename would make the directory its own ancestor.
+    const rename = fs.promises.rename('/memory/a', '/memory/a/b');
+
+    // Then: the invalid move is rejected without corrupting the original tree.
+    await expect(rename).rejects.toThrow('EINVAL');
+    await expect(
+      fs.promises.readFile('/memory/a/file.txt', 'utf8')
+    ).resolves.toBe('safe');
+  });
+
   it('supports symlink/readlink and detects symlink loops', async () => {
     mountMemory();
 
