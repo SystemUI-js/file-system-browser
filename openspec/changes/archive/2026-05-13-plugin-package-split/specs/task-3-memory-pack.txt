@@ -1,0 +1,43 @@
+Task 3 memory plugin extraction evidence - 2026-05-07
+
+Changed files:
+- packages/plugin-memory/src/index.ts now contains the full memory plugin implementation copied/adapted from core.
+- packages/plugin-memory/src/memory-plugin.test.ts contains adapted memory plugin tests using the plugin package factory plus the public core API.
+- packages/plugin-memory/vite.config.ts already externalizes @system-ui-js/file-system-browser and maps the UMD global to FileSystem.
+- packages/plugin-memory/package.json already declares @system-ui-js/file-system-browser as a peer dependency.
+
+Diagnostics:
+- lsp_diagnostics packages/plugin-memory/src/index.ts: No diagnostics found.
+- lsp_diagnostics packages/plugin-memory/src/memory-plugin.test.ts: No diagnostics found.
+
+Verification commands:
+
+1) node -e "const pkg=require('./packages/plugin-memory/package.json'); if(pkg.name!=='@system-ui-js/file-system-plugin-memory') process.exit(1); if(!pkg.peerDependencies || !pkg.peerDependencies['@system-ui-js/file-system-browser']) process.exit(2)"
+Result: passed with exit code 0.
+
+2) npm pack --json (from packages/plugin-memory)
+Result: passed. Output included:
+[
+  {
+    "id": "@system-ui-js/file-system-plugin-memory@0.1.0",
+    "name": "@system-ui-js/file-system-plugin-memory",
+    "version": "0.1.0",
+    "filename": "system-ui-js-file-system-plugin-memory-0.1.0.tgz",
+    "entryCount": 5,
+    "bundled": []
+  }
+]
+
+3) yarn build
+Result: passed. Relevant package output included:
+- @system-ui-js/file-system-plugin-memory: tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+- dist/file-system-plugin-memory.es.js  15.82 kB │ gzip: 3.95 kB
+- dist/file-system-plugin-memory.umd.js  11.10 kB │ gzip: 3.55 kB
+- Declaration files built successfully.
+- Done in 12.09s.
+
+4) yarn test:unit -- --run
+Result: passed. Output included:
+- Test Files  5 passed (5)
+- Tests  73 passed (73)
+- Done in 1.76s.

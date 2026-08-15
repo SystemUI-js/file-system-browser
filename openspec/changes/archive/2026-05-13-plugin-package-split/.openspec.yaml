@@ -1,0 +1,4 @@
+schema: spec-driven
+created: "2026-05-13"
+source: .sisyphus migration
+description: Extract Browser FS Plugins Into Publishable Workspace Packages

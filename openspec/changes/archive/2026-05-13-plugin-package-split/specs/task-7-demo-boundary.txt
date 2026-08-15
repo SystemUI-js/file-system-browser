@@ -1,0 +1,16 @@
+Task 7 demo package-boundary evidence (2026-05-07)
+
+Changed verification path:
+- `vite.demo.config.ts` no longer aliases `@system-ui-js/file-system-browser` to `packages/core/src/index.ts`.
+- Demo and Vitest resolution use package exports with the `source` condition, so imports still go through workspace package names under `node_modules/@system-ui-js/*`.
+- Package exports for core and plugin packages expose `./src/index.ts` only under the custom `source` condition; normal `import`/`require` exports remain dist-based.
+
+Verification commands:
+- `lsp_diagnostics` on `vite.demo.config.ts`, `vitest.config.ts`, and `demo/tsconfig.json`: no diagnostics.
+- `yarn test:unit -- --run`: 4 files passed, 60 tests passed.
+- `yarn build:demo`: built successfully, 13 modules transformed.
+- `yarn test:e2e`: 27 tests passed.
+- `grep -n "alias:.*src\|resolve(.*src/index.ts" vite.demo.config.ts`: no output.
+
+Coverage preserved:
+- E2E still covers root memory mount `/`, memory mount `/memory`, relative mount rejection, nested mount rejection, and mount validation error paths.

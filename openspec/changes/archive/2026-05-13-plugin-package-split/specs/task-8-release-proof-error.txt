@@ -1,0 +1,13 @@
+Evidence: publish order is correct
+
+Inspecting .github/workflows/publish.yml:
+
+1. Core publishes BEFORE plugins:
+   - Line 41-44: "Publish core package" - runs "cd packages/core && npm publish"
+   - Line 46-51: "Publish plugin packages" - runs "cd packages/plugin-memory && npm publish" etc.
+
+2. Root package is NOT published:
+   - The workflow only publishes packages/core and the three plugin packages
+   - Root package (.) is excluded from publish
+
+This ensures core is available before plugins that depend on it are published.

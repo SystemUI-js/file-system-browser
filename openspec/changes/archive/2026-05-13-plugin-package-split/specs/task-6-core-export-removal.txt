@@ -1,0 +1,47 @@
+Task 6: Remove plugin factories from core package and migrate all in-repo consumers
+
+Verification Date: Thu May 07 2026
+
+=== 1. Core index.ts exports removed ===
+Verified: packages/core/src/index.ts no longer exports:
+- createIndexedDBStoragePlugin / IndexedDBStoragePluginOptions
+- createMemoryStoragePlugin / MemoryStoragePluginOptions
+- createWebDAVStoragePlugin / WebDAVStoragePluginOptions
+
+=== 2. Obsolete files deleted from core ===
+Deleted:
+- packages/core/src/plugins/memory.ts
+- packages/core/src/plugins/indexeddb.ts
+- packages/core/src/plugins/webdav.ts
+- packages/core/src/memory-plugin.test.ts
+- packages/core/src/webdav-plugin.test.ts
+
+=== 3. No stale core-based plugin imports remaining ===
+Command: grep -rn "create(Memory|IndexedDB|WebDAV)StoragePlugin" packages/core/src/index.ts README.md demo/main.ts
+Result: (no output - no matches found)
+
+=== 4. Standalone plugin package imports present ===
+Command: grep -Ern "@system-ui-js/file-system-plugin-(memory|indexeddb|webdav)" README.md demo/main.ts packages/core/src/plugin.test.ts
+Result: Matches found in all three files confirming migration to standalone packages.
+
+=== 5. Tests pass ===
+Command: yarn test:unit -- --run
+Result: 4 test files passed, 60 tests passed
+
+=== 6. Build passes ===
+Command: yarn build
+Result: All workspace packages built successfully:
+- @system-ui-js/file-system-browser
+- @system-ui-js/file-system-plugin-indexeddb
+- @system-ui-js/file-system-plugin-memory
+- @system-ui-js/file-system-plugin-webdav
+
+=== 7. Core package devDependencies updated ===
+Added to packages/core/package.json:
+- @system-ui-js/file-system-plugin-indexeddb: 0.1.0
+- @system-ui-js/file-system-plugin-memory: 0.1.0
+- @system-ui-js/file-system-plugin-webdav: 0.1.0
+
+=== 8. README updated ===
+- All code examples now import plugin factories from standalone packages
+- Added "迁移说明" section with migration table and install commands

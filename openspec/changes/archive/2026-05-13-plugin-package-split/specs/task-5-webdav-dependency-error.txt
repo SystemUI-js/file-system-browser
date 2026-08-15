@@ -1,0 +1,6 @@
+Evidence: webdav plugin does NOT deep-import core
+
+Command: grep -rn "from '../fs'|from '../db'" packages/plugin-webdav/src/
+Result: No matches found
+
+Conclusion: The webdav plugin source code does not deep-import from core's fs or db modules.

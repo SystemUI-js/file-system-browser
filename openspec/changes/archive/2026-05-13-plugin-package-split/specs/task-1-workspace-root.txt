@@ -1,0 +1,95 @@
+2026年 05月 07日 星期四 22:45:43 CST
+package invariant check passed
+yarn install v1.22.22
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+[4/4] Building fresh packages...
+Done in 0.91s.
+yarn workspaces v1.22.22
+{
+  "@system-ui-js/file-system-browser": {
+    "location": "packages/core",
+    "workspaceDependencies": [],
+    "mismatchedWorkspaceDependencies": []
+  },
+  "@system-ui-js/file-system-plugin-indexeddb": {
+    "location": "packages/plugin-indexeddb",
+    "workspaceDependencies": [],
+    "mismatchedWorkspaceDependencies": []
+  },
+  "@system-ui-js/file-system-plugin-memory": {
+    "location": "packages/plugin-memory",
+    "workspaceDependencies": [],
+    "mismatchedWorkspaceDependencies": []
+  },
+  "@system-ui-js/file-system-plugin-webdav": {
+    "location": "packages/plugin-webdav",
+    "workspaceDependencies": [],
+    "mismatchedWorkspaceDependencies": []
+  }
+}
+Done in 0.05s.
+yarn run v1.22.22
+$ yarn workspaces run build
+
+> @system-ui-js/file-system-browser
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 9 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+[vite:dts] Declaration files built in 1261ms.
+
+dist/file-system.es.js  203.44 kB │ gzip: 53.77 kB
+dist/file-system.umd.js  150.67 kB │ gzip: 47.55 kB
+✓ built in 1.83s
+
+> @system-ui-js/file-system-plugin-indexeddb
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+dist/file-system-plugin-indexeddb.es.js  0.05 kB │ gzip: 0.07 kB
+[vite:dts] Declaration files built in 770ms.
+
+dist/file-system-plugin-indexeddb.umd.js  0.34 kB │ gzip: 0.25 kB
+✓ built in 828ms
+
+> @system-ui-js/file-system-plugin-memory
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+dist/file-system-plugin-memory.es.js  0.05 kB │ gzip: 0.07 kB
+[vite:dts] Declaration files built in 737ms.
+
+dist/file-system-plugin-memory.umd.js  0.33 kB │ gzip: 0.25 kB
+✓ built in 781ms
+
+> @system-ui-js/file-system-plugin-webdav
+$ tsc --project tsconfig.json --noEmit && vite build --config vite.config.ts
+vite v5.4.21 building for production...
+transforming...
+✓ 1 modules transformed.
+rendering chunks...
+
+[vite:dts] Start generate declaration files...
+computing gzip size...
+dist/file-system-plugin-webdav.es.js  0.05 kB │ gzip: 0.07 kB
+[vite:dts] Declaration files built in 760ms.
+
+dist/file-system-plugin-webdav.umd.js  0.33 kB │ gzip: 0.25 kB
+✓ built in 812ms
+Done in 11.98s.

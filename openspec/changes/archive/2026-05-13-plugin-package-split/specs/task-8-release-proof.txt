@@ -1,0 +1,37 @@
+Task 8 release proof - 2026-05-08
+
+Changed files:
+- .github/workflows/publish.yml
+- package.json
+
+Workflow proof:
+- Trigger remains version tags only: push tags v*.
+- Build and tests run before any publish step: yarn build, yarn test:unit -- --run, yarn test:e2e.
+- Pack smoke check runs before publishing for exactly these package directories:
+  packages/core
+  packages/plugin-memory
+  packages/plugin-indexeddb
+  packages/plugin-webdav
+- Publish uses npm publish inside package directories, never yarn publish at the private workspace root.
+- Publish order is explicit: packages/core first, then packages/plugin-memory, packages/plugin-indexeddb, packages/plugin-webdav.
+
+Local script proof:
+- package.json adds pack:all as: mkdir -p dist-packages && yarn workspaces run pack:workspace
+- package.json keeps root private: true.
+- package.json e2e script now launches Vite directly and kills its server PID after Playwright completes, so CI steps can exit after tests.
+
+Verification results:
+- LSP diagnostics for package.json: passed, no diagnostics.
+- LSP diagnostics for .github/workflows/publish.yml: could not run because yaml-language-server is not installed in this environment.
+- npm pack --json --pack-destination /tmp succeeded in:
+  packages/core
+  packages/plugin-memory
+  packages/plugin-indexeddb
+  packages/plugin-webdav
+- yarn build: passed for all workspaces.
+- yarn test:unit -- --run: passed, 4 files / 60 tests.
+- yarn test:e2e: passed, 27 Playwright tests, and command exited cleanly after server cleanup.
+
+Notes:
+- npm emitted existing warnings about unknown npm env config keys during Playwright startup.
+- Vite emitted the existing mixed named/default export warning for the core UMD build.
